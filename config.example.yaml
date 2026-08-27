@@ -88,7 +88,7 @@ state:
 ui:
   host: 127.0.0.1
   port: 8081
-  refresh_interval_sec: 1.0
+  refresh_interval_sec: 0.5
   # Výchozí vzhled; poslední volba obchodníka má přednost
   dark: false
   # Kolik událostí si aplikace pamatuje v panelu průběhu
