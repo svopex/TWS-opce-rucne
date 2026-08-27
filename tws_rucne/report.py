@@ -155,9 +155,15 @@ def vyber(positions: list[Position], rozsah: str, den: date | None = None) -> li
     """
     Vybere pozice spadající do zvoleného rozsahu.
 
-    V rozsahu „dnes" projdou pozice založené dnešního dne a navíc všechny
-    dosud aktivní - ty vyžadují pozornost bez ohledu na to, kdy vznikly
-    (aplikace může běžet přes noc nebo obnovit stav z předchozího dne).
+    V rozsahu „dnes" projdou pozice založené nebo naposledy změněné dnešního
+    dne a navíc všechny dosud aktivní - ty vyžadují pozornost bez ohledu na
+    to, kdy vznikly (aplikace může běžet přes noc nebo obnovit stav
+    z předchozího dne). Samotný čas založení nestačí: pozice otevřená před
+    půlnocí a prodaná ráno je výsledkem dnešního dne a v přehledu chybět nesmí.
+
+    Zbývá jedno omezení - běžící pozice si nese celý svůj realizovaný výsledek,
+    i když část odprodala už předchozí den; časy jednotlivých prodejů aplikace
+    neeviduje.
     """
     if rozsah == ROZSAH_VSE:
         return list(positions)
@@ -166,7 +172,9 @@ def vyber(positions: list[Position], rozsah: str, den: date | None = None) -> li
     return [
         position
         for position in positions
-        if position.state.is_active or position.created_at.date() == dnesek
+        if position.state.is_active
+        or position.created_at.date() == dnesek
+        or position.updated_at.date() == dnesek
     ]
 
 
@@ -178,31 +186,35 @@ def _serad_ukoncene(positions: list[Position]) -> list[Position]:
 def _serad_bezici(positions: list[Position]) -> list[Position]:
     """
     Běžící pozice: nejprve ty s nakoupenými kontrakty (na těch záleží nejvíc),
-    uvnitř skupiny abecedně podle tickeru.
+    uvnitř skupiny abecedně podle tickeru. Rozhoduje skutečné vyplnění, ne
+    zapsaná cena - tu nese i nevyplněný příkaz podle svého limitu.
     """
-    return sorted(positions, key=lambda p: (p.fill_price is None, p.symbol, p.id))
+    return sorted(positions, key=lambda p: (not p.traded, p.symbol, p.id))
 
 
 def _spocti_souhrn(bezici: list[Position], ukoncene: list[Position]) -> Souhrn:
     """
     Sečte výsledky pozic do souhrnných čísel.
 
-    Realizovaná část se bere ze všech pozic včetně běžících - odprodaná
-    část je hotový výsledek, i když zbytek pozice pokračuje. Statistiky
-    úspěšnosti počítají jen ukončené pozice, aby je nezkresloval výsledek,
-    který se ještě může otočit.
+    Realizovaná i otevřená část se berou ze všech pozic. Běžící pozice mívá
+    obojí (odprodaná část je hotový výsledek, i když zbytek pokračuje), ale
+    ani ukončená nemusí být prázdná - skončí-li chybou nebo zrušením prodeje,
+    zůstanou v ní kontrakty a jejich hodnota z přehledu zmizet nesmí.
+
+    Statistiky úspěšnosti počítají jen doobchodované pozice, aby je
+    nezkresloval výsledek, který se ještě může otočit.
     """
     souhrn = Souhrn(bezicich=len(bezici), ukoncenych=len(ukoncene))
 
-    for position in bezici:
+    for position in bezici + ukoncene:
         realizovano = position.realized_pnl
         if realizovano:
             souhrn.realizovano += realizovano
         otevreno = position.unrealized_pnl
         if otevreno is not None:
             souhrn.otevreno += otevreno
-        # Provize běžící pozice se dělí stejně jako ona sama: co je doprodané,
-        # patří k realizovanému výsledku, zbytek k otevřenému
+        # Provize se dělí stejně jako pozice sama: co je doprodané, patří
+        # k realizovanému výsledku, zbytek nese držená část
         souhrn.provize_realizovane += position.realized_commission
         souhrn.provize_otevrene += position.open_commission
         if position.open_quantity > 0:
@@ -214,14 +226,13 @@ def _spocti_souhrn(bezici: list[Position], ukoncene: list[Position]) -> Souhrn:
             # Pozice skončila dřív, než se vůbec nakoupilo
             souhrn.bez_obchodu += 1
             continue
-
-        vysledek = position.realized_pnl or 0.0
-        souhrn.realizovano += vysledek
-        # Ukončená pozice už nic nedrží, patří jí celá zaplacená provize
-        souhrn.provize_realizovane += position.commission_total
+        if position.open_quantity > 0:
+            # Pozice sice skončila, ale kontrakty drží dál a jejich výsledek
+            # se s trhem mění - mezi hotové obchody dne proto nepatří
+            continue
 
         # O tom, jestli pozice skončila v zisku, rozhoduje výsledek po provizích
-        cisty = vysledek - position.commission_total
+        cisty = position.realized_pnl_net or 0.0
         if cisty > 0:
             souhrn.ziskovych += 1
             souhrn.hruby_zisk += cisty
@@ -244,17 +255,17 @@ def _krivka(ukoncene: list[Position]) -> list[tuple[datetime, float]]:
     """
     Kumulovaný realizovaný výsledek v čase - jak se den vyvíjel.
 
-    Sčítá se výsledek po provizích, aby křivka odpovídala tomu, co obchodní
-    den skutečně přinesl. Body vznikají v čase ukončení pozice (updated_at)
-    a řadí se vzestupně; pozice bez nákupu se přeskakují, protože výsledkem
-    nepohnuly.
+    Sčítá se realizovaný výsledek po provizích, které na něj připadají - tedy
+    totéž číslo, jaké u pozice ukazuje seznam i souhrnné dlaždice. Body
+    vznikají v čase ukončení pozice (updated_at) a řadí se vzestupně; pozice
+    bez nákupu se přeskakují, protože výsledkem nepohnuly.
     """
     body: list[tuple[datetime, float]] = []
     soucet = 0.0
     for position in sorted(ukoncene, key=lambda p: p.updated_at):
         if not position.traded:
             continue
-        soucet += (position.realized_pnl or 0.0) - position.commission_total
+        soucet += position.realized_pnl_net or 0.0
         body.append((position.updated_at, soucet))
     return body
 
@@ -274,7 +285,8 @@ def _podle_tickeru(bezici: list[Position], ukoncene: list[Position]) -> list[Tic
 
     for position in bezici + ukoncene:
         realizovano = position.realized_pnl
-        otevreno = position.unrealized_pnl if position.state.is_active else None
+        # Držené kusy může mít i ukončená pozice; bez nich vychází None sama
+        otevreno = position.unrealized_pnl
         provize = position.commission_total
         # Pozice bez výsledku i bez provize nemá co ukázat; zaplacená provize
         # se ale objevit musí, i když sám výsledek vyšel nulový

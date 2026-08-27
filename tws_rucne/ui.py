@@ -25,6 +25,7 @@ from .models import (
     price_kind_label,
     sell_button_label,
     ukoncene_pozice_text,
+    zbytek_text,
 )
 
 log = logging.getLogger(__name__)
@@ -270,13 +271,8 @@ class PositionCard:
 
                 # Popisek je kvůli délce úsporný, nápověda proto říká, co
                 # tlačítko udělá a co v pozici zbude
-                zbyva = position.open_quantity - mnozstvi
-                if not zbyva:
-                    zbytek = "."
-                elif scope == SELL_SCOPE_BASE:
-                    zbytek = f"; v pozici zbývá runner ({zbyva} ks)."
-                else:
-                    zbytek = f"; v pozici zbývá {zbyva} ks."
+                popis_zbytku = zbytek_text(position, scope, mnozstvi)
+                zbytek = f"; {popis_zbytku}." if popis_zbytku else "."
                 napoveda.set_text(
                     f"{'Přecení příkaz v trhu na' if position.sell_pending else 'Prodá'} "
                     f"{mnozstvi} ks za {price_kind_label(kind, markup)}{zbytek}"
@@ -335,7 +331,7 @@ class TradingUI:
         # Popup s přehledem výsledků dne; grafy v něm se řídí zvoleným
         # vzhledem, proto dostane přístup k přepínači z hlavičky
         self.report_dialog = ReportDialog(
-            self.cfg, self.engine, lambda: bool(self.dark_mode.value)
+            self.engine, lambda: bool(self.dark_mode.value)
         )
         self.report_dialog.build()
 
@@ -809,13 +805,15 @@ class TradingUI:
             return
 
         with self.warning_bar:
-            ui.label(
-                "Na účtu jsou opční pozice, které tato aplikace neřídí - "
-                "prodávejte je přímo v TWS:"
-            ).classes("pruh-text")
-            for conid in sorted(aktualni):
-                info = self.engine.unmanaged[conid]
-                ui.label(f"{info.label}: {info.quantity:g} ks").classes("pruh-text")
+            ui.label("Neřízené opční pozice na účtu - prodávejte je v TWS:").classes(
+                "pruh-text"
+            )
+            # Pozice stojí v jediném výčtu, aby pruh zabral jen jeden řádek
+            vypis = " · ".join(
+                f"{info.label} ({info.quantity:g} ks)"
+                for info in (self.engine.unmanaged[conid] for conid in sorted(aktualni))
+            )
+            ui.label(vypis).classes("pruh-text pruh-vypis")
 
     def _refresh_positions(self) -> None:
         """Založí karty nových pozic, zruší karty odstraněných a ostatní obnoví."""

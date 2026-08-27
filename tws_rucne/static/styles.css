@@ -32,13 +32,14 @@
 
 /* --- Pruh s upozorněním na pozice bez dozoru --- */
 .pruh-varovani {
-  align-items: flex-start;
+  align-items: baseline;
   background-color: #7f1d1d;
-  /* Více pozic se vypisuje pod sebou, dlouhý text se zalomí */
-  flex-direction: column;
-  gap: 4px;
+  /* Pruh zabírá jediný řádek; teprve delší výčet pozic se zalomí */
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   margin: 0;
-  padding: 8px 16px;
+  padding: 6px 16px;
   width: 100%;
 }
 
@@ -46,6 +47,11 @@
   color: #fee2e2;
   font-size: 0.88rem;
   font-weight: 600;
+}
+
+/* Vlastní výčet pozic je lehčí než hláška před ním, ať se čte na první pohled */
+.pruh-varovani .pruh-vypis {
+  font-weight: 500;
 }
 
 /* --- Rozvržení stránky --- */

@@ -66,6 +66,20 @@ class TestVyberRozsahu(unittest.TestCase):
         vybrane = report.vyber([vcerejsi, stara_bezici, dnesni], report.ROZSAH_DNES)
         self.assertEqual({p.id for p in vybrane}, {"A-2", "A-3"})
 
+    def test_dnes_bere_i_pozici_zalozenou_vcera_a_ukoncenou_dnes(self):
+        # Aplikace běžela přes noc: pozice vznikla včera, prodala se ráno
+        prespolni = pozice(
+            id="A-1",
+            sold=2,
+            sold_value=7.0,
+            state=PositionState.CLOSED,
+            den=date.today() - timedelta(days=1),
+        )
+        prespolni.updated_at = datetime.now()
+
+        vybrane = report.vyber([prespolni], report.ROZSAH_DNES)
+        self.assertEqual([p.id for p in vybrane], ["A-1"])
+
     def test_vse_bere_uplne_vsechno(self):
         stare = pozice(id="A-1", state=PositionState.CLOSED, den=date(2020, 1, 1))
         vybrane = report.vyber([stare], report.ROZSAH_VSE)
@@ -155,6 +169,52 @@ class TestSouhrn(unittest.TestCase):
         self.assertEqual(s.nejhorsi[0], "MSFT")
 
 
+class TestUkoncenaPoziceSDrzenymiKusy(unittest.TestCase):
+    """
+    Pozice ukončená chybou nebo zrušením může kontrakty držet dál. Její
+    otevřená část z přehledu zmizet nesmí a mezi hotové obchody nepatří.
+    """
+
+    def test_drzene_kusy_zustavaji_v_souhrnu(self):
+        # 2 ks nakoupené za 3,00, střed trhu 3,50, nic prodáno
+        chybna = pozice(id="A-1", filled=2, state=PositionState.ERROR, buy_provize=6.0)
+
+        s = report.sestav([chybna]).souhrn
+        self.assertAlmostEqual(s.otevreno, 100.0)
+        self.assertEqual(s.otevrenych_pozic, 1)
+        self.assertEqual(s.otevrenych_kusu, 2)
+        # Provize patří celá držené části - prodejní zatím nevznikla
+        self.assertAlmostEqual(s.provize_otevrene, 6.0)
+        self.assertAlmostEqual(s.provize_realizovane, 0.0)
+        # Výsledek se s trhem dál mění, do statistik proto nevstupuje
+        self.assertEqual(s.uzavrenych_s_vysledkem, 0)
+        self.assertEqual(s.ztratovych, 0)
+        self.assertIsNone(s.profit_factor)
+
+    def test_souhrn_a_pozice_ukazuji_totez_cislo(self):
+        # 3 ks za 3,00, jeden prodán za 4,00, zbytek se drží při středu 3,50
+        chybna = pozice(
+            id="A-1",
+            filled=3,
+            sold=1,
+            sold_value=4.0,
+            state=PositionState.ERROR,
+            buy_provize=3.0,
+            sell_provize=1.0,
+        )
+        podklad = report.sestav([chybna])
+        s = podklad.souhrn
+        # Dlaždice musí sedět s tím, co u pozice ukazuje seznam i křivka
+        self.assertAlmostEqual(s.realizovano_s_provizi, chybna.realized_pnl_net)
+        self.assertAlmostEqual(s.otevreno_s_provizi, chybna.open_pnl_net)
+        self.assertAlmostEqual(podklad.krivka[-1][1], chybna.realized_pnl_net)
+
+    def test_ticker_zna_i_drzenou_cast_ukoncene_pozice(self):
+        chybna = pozice(id="A-1", filled=2, state=PositionState.ERROR)
+        polozky = report.sestav([chybna]).podle_tickeru
+        self.assertAlmostEqual(polozky[0].otevreno, 100.0)
+
+
 class TestKrivka(unittest.TestCase):
     """Křivka průběhu dne kumuluje realizovaný výsledek po provizích."""
 
@@ -215,6 +275,15 @@ class TestRozdeleniPozic(unittest.TestCase):
         s_nakupem = pozice(id="A-1", filled=2, state=PositionState.OPEN)
         podklad = report.sestav([bez_nakupu, s_nakupem])
         self.assertEqual([p.id for p in podklad.bezici], ["A-1", "A-2"])
+
+    def test_nevyplneny_prikaz_patri_dolu_i_s_limitni_cenou(self):
+        # Nevyplněný nákup si nese cenu limitu, nakoupeno ale nemá nic
+        ceka = pozice(id="B-1", symbol="BBBB", filled=0, state=PositionState.BUYING)
+        ceka.fill_price = 3.10
+        drzi = pozice(id="Z-1", symbol="ZZZZ", filled=2, state=PositionState.OPEN)
+
+        podklad = report.sestav([ceka, drzi])
+        self.assertEqual([p.id for p in podklad.bezici], ["Z-1", "B-1"])
 
     def test_ukoncene_od_nejnovejsi(self):
         starsi = pozice(id="A-1", state=PositionState.CLOSED, minuta=0)

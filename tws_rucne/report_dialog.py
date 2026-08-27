@@ -20,9 +20,8 @@ from typing import Any
 from nicegui import ui
 
 from . import report
-from .config import AppConfig
 from .engine import ManualEngine
-from .models import Position, PositionState
+from .models import Position, PositionState, cislo_text
 
 # Popisky přepínače rozsahu přehledu
 ROZSAHY = {report.ROZSAH_DNES: "Dnes", report.ROZSAH_VSE: "Vše"}
@@ -45,14 +44,13 @@ DLAZDICE = (
 
 def penize(hodnota: float | None, znamenko: bool = True) -> str:
     """
-    Částka v USD pro přehled - tisíce oddělené mezerou.
-    Se znaménkem se zobrazují výsledky (aby byl zisk na první pohled patrný),
-    bez něj ceny. Chybějící hodnota je pomlčka.
+    Částka v USD pro přehled - formát čísla řeší cislo_text, tady se navíc
+    ošetří chybějící hodnota (pomlčka). Se znaménkem se zobrazují výsledky,
+    aby byl zisk na první pohled patrný, bez něj ceny.
     """
     if hodnota is None:
         return "-"
-    text = f"{hodnota:+,.2f}" if znamenko else f"{hodnota:,.2f}"
-    return text.replace(",", " ")
+    return cislo_text(hodnota, znamenko=znamenko)
 
 
 def penize_s_provizi(cisty: float | None, hruby: float | None) -> str:
@@ -142,10 +140,7 @@ class ReportDialog:
     pozic; obsah se plní až při otevření a pak průběžně obnovuje.
     """
 
-    def __init__(
-        self, cfg: AppConfig, engine: ManualEngine, je_tmavy: Callable[[], bool]
-    ) -> None:
-        self.cfg = cfg
+    def __init__(self, engine: ManualEngine, je_tmavy: Callable[[], bool]) -> None:
         self.engine = engine
         # Vzhled grafů se řídí přepínačem světlý/tmavý režim v hlavičce
         self.je_tmavy = je_tmavy
@@ -510,9 +505,16 @@ class ReportDialog:
                     f"odznak-smer {'smer-long' if position.right == 'C' else 'smer-short'}"
                 )
             ui.label(kontrakt_text(position)).classes("bunka bunka-kontrakt")
-            ui.label(str(position.filled_quantity or position.quantity)).classes(
-                "bunka bunka-cislo"
+            # Píše se skutečně nakoupené množství; u zrušeného příkazu tedy
+            # nula, ne počet kusů, které se jen zadávaly. Drží-li pozice i po
+            # ukončení kontrakty (typicky po chybě), přibude před lomítkem
+            # zbytek v pozici - stejně jako u běžících řádků
+            ks = (
+                f"{position.open_quantity}/{position.filled_quantity}"
+                if position.open_quantity
+                else str(position.filled_quantity)
             )
+            ui.label(ks).classes("bunka bunka-cislo")
             # Nákupní a průměrná prodejní cena opce vedle sebe; bez nákupu pomlčka
             if position.fill_price is None:
                 obchod = "-"
@@ -724,8 +726,10 @@ class ReportDialog:
         self.graf_tickery.set_visibility(bool(podklad.podle_tickeru))
         self.prazdno_tickery.set_visibility(not podklad.podle_tickeru)
 
+        # Zaokrouhluje se na stejný počet míst, jaký se vypisuje v popisku
+        # sloupce - jinak by popisek u drobných pohybů zůstal viset na starém
         podpis = (self.je_tmavy(),) + tuple(
-            (polozka.symbol, round(polozka.celkem_s_provizi, 0))
+            (polozka.symbol, round(polozka.celkem_s_provizi, 2))
             for polozka in podklad.podle_tickeru
         )
         if podpis == self._podpis_tickery:

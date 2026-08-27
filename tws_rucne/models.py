@@ -23,9 +23,15 @@ SELL_SCOPE_ONE = "one"
 ASK_MARKUPS = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0)
 
 
-def cislo_text(hodnota: float, desetin: int = 2) -> str:
-    """Číslo pro zobrazení - tisíce oddělené mezerou, desetinná tečka."""
-    return f"{hodnota:,.{desetin}f}".replace(",", " ")
+def cislo_text(hodnota: float, desetin: int = 2, znamenko: bool = False) -> str:
+    """
+    Číslo pro zobrazení - tisíce oddělené mezerou, desetinná tečka.
+
+    Se znaménkem se vypisují výsledky obchodů, aby byl zisk i ztráta patrné
+    na první pohled; ceny se píšou bez něj.
+    """
+    predpis = f"{{:{'+' if znamenko else ''},.{desetin}f}}"
+    return predpis.format(hodnota).replace(",", " ")
 
 
 class PositionState(str, Enum):
@@ -412,6 +418,22 @@ class Position:
         if message:
             self.message = message
         self.updated_at = datetime.now()
+
+
+def zbytek_text(position: Position, scope: str, quantity: int) -> str:
+    """
+    Popis toho, co v pozici po prodeji zbude - třeba 'v pozici zbývá runner
+    (2 ks)'. Nezbývá-li nic, vrací prázdný řetězec a volající větu neskládá.
+
+    Runnerem se zbytek nazve jen tam, kde o něj skutečně jde - tedy při
+    prodeji základní pozice. Po prodeji jednoho kusu zbývá prostě zbytek.
+    """
+    zbyva = position.open_quantity - quantity
+    if zbyva <= 0:
+        return ""
+    if scope == SELL_SCOPE_BASE:
+        return f"v pozici zbývá runner ({zbyva} ks)"
+    return f"v pozici zbývá {zbyva} ks"
 
 
 def pnl_text(otevreny: float | None, celkovy: float | None, split: bool) -> str:

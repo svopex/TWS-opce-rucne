@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from tests.fake_ib import OPTION_CONID
 from tests.zaklad import ZakladSeStavem
 from tws_rucne import store
 from tws_rucne.engine import ManualEngine
-from tws_rucne.models import SELL_SCOPE_BASE, Position, PositionState
+from tws_rucne.models import SELL_SCOPE_ALL, SELL_SCOPE_BASE, Position, PositionState
 
 
 class TestUlozeniStavu(ZakladSeStavem):
@@ -96,6 +99,21 @@ class TestObnovaPoRestartu(ZakladSeStavem):
         self.assertEqual(obnovena.open_quantity, 3)
         # Cenu ani přesné množství se z TWS nedozvíme, musí je ověřit obchodník
         self.assertIn("Ověřte množství i cenu", obnovena.message)
+
+    async def test_nakup_bez_prikazu_prebira_mnozstvi_z_uctu(self):
+        position = await self.nakup(quantity=5)
+        # Příkaz z TWS zmizel a vyplnily se jen dva z pěti kusů
+        self.ib.placed.clear()
+        self.ib.held_positions = {OPTION_CONID: 2}
+
+        novy = await self._restartuj()
+        obnovena = novy.position(position.id)
+        self.assertEqual(obnovena.state, PositionState.OPEN)
+        self.assertEqual(obnovena.filled_quantity, 2)
+        self.assertEqual(obnovena.open_quantity, 2)
+        # Nic se neprodalo, evidence proto nesmí vykázat prodej ani výsledek
+        self.assertEqual(obnovena.sold_quantity, 0)
+        self.assertIsNone(obnovena.realized_pnl)
 
     async def test_mensi_pozice_v_tws_se_povazuje_za_castecne_prodanou(self):
         position = await self.nakup_vyplnen(quantity=3)
@@ -202,6 +220,45 @@ class TestObnovaViceZapisuNaJednomKontraktu(ZakladSeStavem):
         self.assertEqual(novy.position(jeden.id).open_quantity, 3)
         self.assertIn("POZOR", novy.position(jeden.id).message)
 
+    async def test_prebytek_se_nepripisuje_pozici_s_bezicim_nakupem(self):
+        drzena = await self.nakup_vyplnen(quantity=2)
+        nakupovana = await self.nakup(quantity=3)
+        # TWS stihl nákup vyplnit dřív, než se o tom aplikace dozvěděla
+        self.ib.held_positions = {OPTION_CONID: 5}
+
+        novy = await self._restartuj()
+        # Kusy patří běžícímu příkazu, držená pozice si je nárokovat nesmí
+        self.assertEqual(novy.position(drzena.id).open_quantity, 2)
+        self.assertEqual(novy.position(nakupovana.id).filled_quantity, 0)
+        self.assertIn("nákupní příkaz", self._zpravy(novy))
+
+        # Jakmile TWS vyplnění ohlásí, převezme je pozice s příkazem - a jen ona
+        novy._synced = True
+        self.ib.fill(novy.position(nakupovana.id).buy_trade, 3, 3.20)
+        await novy._tick()
+        self.assertEqual(novy.position(nakupovana.id).open_quantity, 3)
+        self.assertEqual(novy.position(drzena.id).open_quantity, 2)
+
+    async def test_neodepsatelny_zbytek_schodku_se_hlasi(self):
+        drzena = await self.nakup_vyplnen(quantity=1)
+        castecna = await self.nakup(quantity=5)
+        # Nákup je vyplněný jen zčásti, příkaz ale v trhu zůstává
+        self.ib.fill(castecna.buy_trade, 3, 3.20, status="Submitted")
+        await self.tik()
+        self.assertEqual(castecna.filled_quantity, 3)
+
+        # Mimo aplikaci se všechny kontrakty prodaly
+        self.ib.held_positions = {}
+        novy = await self._restartuj()
+
+        # Odepsat lze jen z držené pozice; zbytek si nárokuje příkaz v trhu
+        self.assertEqual(novy.position(drzena.id).open_quantity, 0)
+        self.assertIn("chybí ještě 3 ks", self._zpravy(novy))
+
+    def _zpravy(self, engine: ManualEngine) -> str:
+        """Zaznamenané události enginu v jednom řetězci - pro hledání hlášek."""
+        return " ".join(zprava for _, zprava in engine.events)
+
     async def test_soucet_odpovida_skutecnosti_i_po_srovnani(self):
         await self._dve_pozice(5, 1)
         self.ib.held_positions = {OPTION_CONID: 3}
@@ -209,3 +266,43 @@ class TestObnovaViceZapisuNaJednomKontraktu(ZakladSeStavem):
         novy = await self._restartuj()
         drzeno = sum(p.open_quantity for p in novy.positions.values())
         self.assertEqual(drzeno, 3)
+
+
+class TestMigraceStarychProvizi(ZakladSeStavem):
+    """
+    Starší zápis vedl provize v jediném slovníku bez rozlišení druhu.
+    Po načtení skončí mezi nákupními a TWS je pošle znovu i s druhem -
+    přerozdělení proto nesmí žádnou z nich započítat podruhé.
+    """
+
+    async def test_prodejni_provize_se_po_migraci_nezapocita_dvakrat(self):
+        position = await self.nakup_vyplnen(quantity=2, cena=3.00)
+        self.ib.record_commission(position.buy_trade, 2.0)
+        await self.tik()
+
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL)
+        self.ib.fill(position.sell_trade, 2, 3.50, commission=1.5)
+        await self.tik()
+        self.assertAlmostEqual(position.commission_total, 3.5)
+
+        # Uložený stav se přepíše do staršího tvaru - obě provize pohromadě
+        cesta = Path(self.cfg.state.file)
+        obsah = json.loads(cesta.read_text(encoding="utf-8"))
+        zaznam = obsah["positions"][0]
+        zaznam["commissions"] = {
+            **zaznam.pop("buy_commissions"),
+            **zaznam.pop("sell_commissions"),
+        }
+        cesta.write_text(json.dumps(obsah), encoding="utf-8")
+
+        novy = ManualEngine(self.cfg, self.ib)
+        await novy.restore()
+        obnovena = novy.position(position.id)
+        self.assertAlmostEqual(obnovena.commission_total, 3.5)
+
+        # Průchod smyčkou provize jen přerozdělí podle druhu příkazu
+        novy._synced = True
+        await novy._tick()
+        self.assertAlmostEqual(obnovena.buy_commission, 2.0)
+        self.assertAlmostEqual(obnovena.sell_commission, 1.5)
+        self.assertAlmostEqual(obnovena.commission_total, 3.5)

@@ -77,8 +77,9 @@ def dict_to_position(data: dict[str, Any]) -> Position:
     position = Position(**kwargs)
 
     # Starší zápis vedl provize v jediném slovníku bez rozlišení druhu.
-    # Berou se jako nákupní - u uzavřené pozice na tom nezáleží (otevřená
-    # část je nulová), u běžící se rozdělení srovná první novou provizí.
+    # Berou se prozatím jako nákupní; jakmile TWS tutéž exekuci pošle znovu
+    # i s druhem, _sync_commissions ji přesune mezi prodejní a z nákupních
+    # odstraní, takže se nezapočítá dvakrát.
     for exec_id, castka in (data.get("commissions") or {}).items():
         position.buy_commissions.setdefault(exec_id, castka)
 
