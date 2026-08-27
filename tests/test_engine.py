@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from tests.fake_ib import OPTION_CONID, UNDERLYING_CONID
 from tests.zaklad import ZakladEnginu
 from tws_rucne.models import (
@@ -547,3 +550,39 @@ class TestProdejPoKusech(ZakladEnginu):
         position = await self.nakup_vyplnen(quantity=3)
         with self.assertRaises(ValueError):
             await self.engine.sell(position.id, "bid", "polovina")
+
+
+class TestOdpoctuOtevreniBurzy(ZakladEnginu):
+    """Odpočet do otevření burzy pro hlavičku rozhraní."""
+
+    def burza(self, hodina: int, minuta: int, den: int = 19) -> None:
+        """Podvrhne čas burzy - srpen 2026, výchozí den je středa 19. 8."""
+        self.engine._exchange_now = lambda: datetime(
+            2026, 8, den, hodina, minuta, tzinfo=ZoneInfo("America/New_York")
+        )
+
+    def test_pred_otevrenim_zbyva_cas_do_dnesni_seance(self):
+        self.burza(8, 30)
+        self.assertAlmostEqual(self.engine.market_open_seconds(), 3600.0)
+
+    def test_behem_seance_se_odpocet_nemeri(self):
+        self.burza(11, 0)
+        self.assertIsNone(self.engine.market_open_seconds())
+
+    def test_po_zavreni_miri_odpocet_na_dalsi_den(self):
+        self.burza(17, 30)
+        self.assertAlmostEqual(self.engine.market_open_seconds(), 16 * 3600.0)
+
+    def test_o_vikendu_se_ceka_na_pondeli(self):
+        # Pátek 21. 8. 2026 po zavření - nejbližší otevření je až v pondělí
+        self.burza(17, 30, den=21)
+        self.assertAlmostEqual(self.engine.market_open_seconds(), 64 * 3600.0)
+
+        # Sobota 22. 8. 2026 dopoledne - stále se čeká na pondělní otevření
+        self.burza(9, 0, den=22)
+        self.assertAlmostEqual(self.engine.market_open_seconds(), (48 + 0.5) * 3600.0)
+
+    def test_hodiny_burzy_se_berou_z_konfigurace(self):
+        self.cfg.trading.exchange_open_time = "10:00"
+        self.burza(8, 30)
+        self.assertAlmostEqual(self.engine.market_open_seconds(), 5400.0)

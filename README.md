@@ -16,6 +16,7 @@ vzniká výhradně stiskem tlačítka.
 - [Instalace a spuštění](#instalace-a-spuštění)
 - [Nastavení TWS](#nastavení-tws)
 - [Ovládání](#ovládání)
+  - [Hlavička](#hlavička)
   - [Zadání a náhled kontraktu](#zadání-a-náhled-kontraktu)
   - [Nákup](#nákup)
   - [Prodej a runner](#prodej-a-runner)
@@ -98,6 +99,19 @@ se nepovolí - limitní cenu totiž není z čeho spočítat.
 ---
 
 ## Ovládání
+
+### Hlavička
+
+Vlevo stojí název aplikace, vpravo stav spojení s TWS, přepínač světlého
+a tmavého vzhledu a tlačítko připojení.
+
+Mimo obchodní hodiny se v hlavičce ukazuje odpočet do nejbližšího otevření
+burzy (`Otevření trhu za ...`). Časuje se v časové zóně burzy podle voleb
+`trading.exchange_timezone`, `exchange_open_time` a `exchange_close_time`,
+takže posun letního a zimního času vůči času počítače nehraje roli. Po
+zavření a o víkendu míří odpočet na otevření následujícího obchodního dne -
+u delších pauz proto vypisuje i počet dní. Svátky ani zkrácené obchodní dny
+aplikace nezná. Během seance je odpočet skrytý a obchodování neovlivňuje.
 
 ### Zadání a náhled kontraktu
 
@@ -230,8 +244,13 @@ ještě drží a s jakým výsledkem:
 - **sloupcový graf podle tickeru**.
 
 Přepínač **Dnes / Vše** rozhoduje o rozsahu: *Dnes* bere pozice založené
-dnešního dne a všechny dosud běžící (aplikace může běžet přes noc), *Vše*
-celý obsah přehledu bez ohledu na datum.
+nebo ukončené dnešního dne a všechny dosud běžící - aplikace může běžet přes
+noc a pozice otevřená před půlnocí a prodaná ráno patří do dnešního výsledku.
+*Vše* ukazuje celý obsah přehledu bez ohledu na datum.
+
+Přehled zabírá celou obrazovku a hlavičku aplikace tím zakryje, proto má
+vedle přepínače rozsahu **vlastní tlačítko světlého a tmavého vzhledu** -
+přepíná tentýž režim jako tlačítko v hlavičce, včetně barev obou grafů.
 
 Hlavní hodnota je vždy ta **po provizích** - v závorce vedle ní stojí drobněji
 tatáž částka bez nich. Provize se přitom dělí mezi prodanou a drženou část
@@ -302,6 +321,7 @@ se mění:
 | `trading.ask_tolerance_pct`, `trading.bid_tolerance_pct` | o kolik procent smí limit přesáhnout ASK, resp. podlézt BID (0 = přesně na kotaci) |
 | `trading.max_spread_pct` | nad kolik procent spreadu rozhraní upozorní (nákup nezakazuje) |
 | `trading.tif` | `DAY` = do konce obchodního dne, `GTC` = do zrušení |
+| `trading.exchange_timezone`, `exchange_open_time`, `exchange_close_time` | hodiny burzy pro odpočet v hlavičce (obchodování neovlivňují) |
 | `strike.mode`, `strike.otm_steps` | jak se vybírá strike |
 | `expiration.mode`, `expiration.min_dte` | jak se vybírá expirace |
 | `ui.port`, `ui.dark` | webové rozhraní |
@@ -364,4 +384,5 @@ nikam nepřipojuje. **Testy se nikdy nepřipojí k běžící TWS.**
 - Souběžně může na jednom tickeru a směru čekat jen jeden nevyplněný nákupní
   příkaz - další stisk jej přecení. Nová pozice na tomtéž kontraktu vznikne
   až po vyplnění té předchozí.
-- Zkrácené obchodní dny ani stav burzy aplikace nesleduje.
+- Zkrácené obchodní dny ani stav burzy aplikace nesleduje - odpočet do
+  otevření trhu se řídí jen hodinami z konfigurace a svátky nezná.

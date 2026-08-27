@@ -30,6 +30,24 @@ from .models import (
 
 log = logging.getLogger(__name__)
 
+
+def format_countdown(sekundy: float) -> str:
+    """
+    Zbývající čas odpočtu v hlavičce. Pod hodinu vyjde MM:SS, do dne
+    H:MM:SS a přes den se přidá počet dní - odpočet do otevření trhu běží
+    i přes víkend, takže může jít o desítky hodin.
+    """
+    celkem = max(0, int(sekundy))
+    dny, zbytek = divmod(celkem, 86400)
+    hodiny, zbytek = divmod(zbytek, 3600)
+    minuty, sek = divmod(zbytek, 60)
+    if dny:
+        return f"{dny} d {hodiny}:{minuty:02d}:{sek:02d}"
+    if hodiny:
+        return f"{hodiny}:{minuty:02d}:{sek:02d}"
+    return f"{minuty:02d}:{sek:02d}"
+
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 # Kolik událostí se nejvýš vypisuje v panelu průběhu
@@ -331,7 +349,7 @@ class TradingUI:
         # Popup s přehledem výsledků dne; grafy v něm se řídí zvoleným
         # vzhledem, proto dostane přístup k přepínači z hlavičky
         self.report_dialog = ReportDialog(
-            self.engine, lambda: bool(self.dark_mode.value)
+            self.engine, lambda: bool(self.dark_mode.value), self._toggle_dark
         )
         self.report_dialog.build()
 
@@ -358,6 +376,9 @@ class TradingUI:
         with ui.header().classes("hlavicka"):
             ui.label("Ruční obchodování opcí – TWS").classes("nazev")
             ui.space()
+            # Odpočet do otevření burzy - během seance se skrývá
+            self.market_open_label = ui.label().classes("odpocet-otevreni")
+            self.market_open_label.set_visibility(False)
             self.dark_button = ui.button(on_click=self._toggle_dark).props("flat round dense")
             with self.dark_button:
                 ui.tooltip("Přepnout světlý/tmavý vzhled")
@@ -766,6 +787,7 @@ class TradingUI:
     def _refresh(self) -> None:
         """Obnoví všechny části stránky podle aktuálního stavu."""
         self._refresh_status()
+        self._refresh_market_open()
         self._refresh_warning()
 
         # Náhled si drží vlastní odběr dat, takže se ceny hýbou i bez nákupu
@@ -791,6 +813,16 @@ class TradingUI:
             self.status_label.set_text("TWS odpojeno")
             self.status_label.classes(replace="stav-spojeni spojeni-chyba")
             self.connect_button.set_text("Připojit")
+
+    def _refresh_market_open(self) -> None:
+        """Odpočet do otevření burzy v hlavičce - během seance se skrývá."""
+        sekundy = self.engine.market_open_seconds()
+        if sekundy is None:
+            self.market_open_label.set_visibility(False)
+            return
+
+        self.market_open_label.set_visibility(True)
+        self.market_open_label.set_text(f"Otevření trhu za {format_countdown(sekundy)}")
 
     def _refresh_warning(self) -> None:
         """Vypíše pruh s opčními pozicemi na účtu, které aplikace neřídí."""

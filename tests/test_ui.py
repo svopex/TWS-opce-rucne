@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tws_rucne import calc
 from tws_rucne.engine import ManualEngine
 from tws_rucne.models import ASK_MARKUPS, SELL_SCOPE_BASE
-from tws_rucne.ui import TradingUI
+from tws_rucne.ui import TradingUI, format_countdown
 
 
 class TestObsluhaTlacitek(unittest.TestCase):
@@ -72,6 +72,22 @@ class TestNabizenePrirazky(unittest.TestCase):
             + [("ask", p) for p in ASK_MARKUPS]
         ]
         self.assertEqual(ceny, sorted(ceny))
+
+
+class TestFormatuOdpoctu(unittest.TestCase):
+    """Odpočet v hlavičce se zkracuje podle toho, kolik času zbývá."""
+
+    def test_pod_hodinu_jen_minuty_a_sekundy(self):
+        self.assertEqual(format_countdown(95), "01:35")
+
+    def test_do_dne_i_s_hodinami(self):
+        self.assertEqual(format_countdown(3 * 3600 + 5 * 60 + 7), "3:05:07")
+
+    def test_pres_den_i_s_poctem_dni(self):
+        self.assertEqual(format_countdown(64 * 3600), "2 d 16:00:00")
+
+    def test_zaporny_cas_je_nula(self):
+        self.assertEqual(format_countdown(-5), "00:00")
 
 
 if __name__ == "__main__":

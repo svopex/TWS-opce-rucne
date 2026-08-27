@@ -14,8 +14,9 @@ import itertools
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from . import calc, store
 from .config import AppConfig
@@ -178,6 +179,50 @@ class ManualEngine:
     def _next_id(self, symbol: str) -> str:
         """Sestaví identifikátor pozice, například 'AAPL-3'."""
         return f"{symbol}-{next(self._ids)}"
+
+    # ------------------------------------------------------------------
+    # Obchodní hodiny burzy
+    # ------------------------------------------------------------------
+
+    def _exchange_now(self) -> datetime:
+        """Aktuální čas v časové zóně burzy (řeší letní i zimní čas)."""
+        return datetime.now(ZoneInfo(self.cfg.trading.exchange_timezone))
+
+    def _exchange_time(self, ted: datetime, hodnota: str) -> datetime:
+        """Čas dnešního dne podle zápisu HH:MM v časové zóně burzy."""
+        hodina, minuta = (int(cast) for cast in hodnota.split(":"))
+        return ted.replace(hour=hodina, minute=minuta, second=0, microsecond=0)
+
+    def market_open_seconds(self) -> float | None:
+        """
+        Počet sekund do nejbližšího otevření burzy.
+
+        None znamená, že burza právě obchoduje - odpočet nemá co měřit.
+        Po zavření a o víkendu se míří na otevření následujícího obchodního
+        dne; svátky ani zkrácené obchodní dny aplikace nezná.
+        """
+        ted = self._exchange_now()
+        otevreni = self._exchange_time(ted, self.cfg.trading.exchange_open_time)
+
+        # V obchodní den před otevřením stačí odpočet do dnešní seance
+        if ted.weekday() < 5 and ted < otevreni:
+            return (otevreni - ted).total_seconds()
+
+        # Uvnitř dnešní seance se odpočet nezobrazuje
+        if ted.weekday() < 5 and ted < self._exchange_time(
+            ted, self.cfg.trading.exchange_close_time
+        ):
+            return None
+
+        # Po zavření a o víkendu se hledá nejbližší další obchodní den.
+        # Přičítání dnů běží v nástěnném čase burzy, takže přechod mezi
+        # letním a zimním časem otevírací hodinu neposune
+        cil = otevreni + timedelta(days=1)
+        while cil.weekday() >= 5:
+            cil += timedelta(days=1)
+        # Rozdíl přes timestamp počítá skutečně uplynulé sekundy i tehdy,
+        # když mezi dneškem a cílem přeskočí hodina letního času
+        return cil.timestamp() - ted.timestamp()
 
     # ------------------------------------------------------------------
     # Příprava zadání

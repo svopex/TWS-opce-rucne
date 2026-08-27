@@ -140,10 +140,18 @@ class ReportDialog:
     pozic; obsah se plní až při otevření a pak průběžně obnovuje.
     """
 
-    def __init__(self, engine: ManualEngine, je_tmavy: Callable[[], bool]) -> None:
+    def __init__(
+        self,
+        engine: ManualEngine,
+        je_tmavy: Callable[[], bool],
+        prepni_vzhled: Callable[[], None],
+    ) -> None:
         self.engine = engine
-        # Vzhled grafů se řídí přepínačem světlý/tmavý režim v hlavičce
+        # Vzhled grafů se řídí přepínačem světlý/tmavý režim. Dialog přes celou
+        # obrazovku hlavičku překrývá, proto má vlastní tlačítko, které sahá
+        # na tentýž přepínač - obojí tak zůstává v jednom stavu
         self.je_tmavy = je_tmavy
+        self.prepni_vzhled = prepni_vzhled
         self.rozsah = report.ROZSAH_DNES
 
         # Podpisy naposledy vykreslených dat. Seznamy a grafy se překreslují
@@ -222,9 +230,26 @@ class ReportDialog:
                     "běží. Vše: celý obsah přehledu bez ohledu na datum."
                 )
             )
+            self.tlacitko_vzhled = (
+                ui.button(on_click=self._prepni_vzhled)
+                .props("flat round dense")
+                .classes("report-vzhled")
+                .tooltip("Přepnout světlý/tmavý vzhled")
+            )
+            self._obnov_tlacitko_vzhledu()
             ui.button(icon="close", on_click=self.dialog.close).props(
                 "flat round dense"
             ).classes("report-zavrit").tooltip("Zavřít přehled")
+
+    def _prepni_vzhled(self) -> None:
+        """Přepne vzhled celé aplikace a srovná ikonu tlačítka."""
+        self.prepni_vzhled()
+        self._obnov_tlacitko_vzhledu()
+
+    def _obnov_tlacitko_vzhledu(self) -> None:
+        """Ikona ukazuje režim, do kterého se lze přepnout."""
+        ikona = "light_mode" if self.je_tmavy() else "dark_mode"
+        self.tlacitko_vzhled.props(f"icon={ikona}")
 
     def _build_dlazdice(self, klic: str, nadpis: str) -> dict[str, Any]:
         """
@@ -281,6 +306,7 @@ class ReportDialog:
 
         podklad = report.sestav(list(self.engine.positions.values()), self.rozsah)
         self.datum_label.set_text(f"{datetime.now():%d.%m.%Y %H:%M:%S}")
+        self._obnov_tlacitko_vzhledu()
         self._vykresli_dlazdice(podklad)
         self._vykresli_bezici(podklad)
         self._vykresli_uzavrene(podklad)

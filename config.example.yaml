@@ -50,6 +50,18 @@ trading:
   # Nákup se nezakazuje - o zadání rozhoduje obchodník.
   max_spread_pct: 7.0
 
+  # Časová zóna burzy - odpočet v hlavičce se časuje v ní, takže posuny
+  # letního a zimního času vůči místnímu času počítače nehrají roli
+  exchange_timezone: "America/New_York"
+
+  # Čas otevření burzy ve tvaru HH:MM (v časové zóně burzy).
+  # Slouží jen k odpočtu v hlavičce, obchodování neovlivňuje.
+  exchange_open_time: "09:30"
+
+  # Čas zavření burzy ve tvaru HH:MM (v časové zóně burzy).
+  # Zkrácené obchodní dny (např. před svátky) aplikace nezná.
+  exchange_close_time: "16:00"
+
 # --- Výběr expirace ---
 expiration:
   # nearest = nejbližší expirace splňující min_dte, fixed = konkrétní datum

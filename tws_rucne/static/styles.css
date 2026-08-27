@@ -30,6 +30,13 @@
   color: #fee2e2;
 }
 
+/* Odpočet do otevření burzy - zobrazuje se mimo obchodní hodiny */
+.odpocet-otevreni {
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  margin-right: 12px;
+}
+
 /* --- Pruh s upozorněním na pozice bez dozoru --- */
 .pruh-varovani {
   align-items: baseline;
@@ -421,6 +428,7 @@
 }
 
 .report-prepinac,
+.report-vzhled,
 .report-zavrit {
   flex: 0 0 auto;
 }
