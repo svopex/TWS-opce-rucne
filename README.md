@@ -102,8 +102,24 @@ se nepovolí - limitní cenu totiž není z čeho spočítat.
 
 ### Hlavička
 
-Vlevo stojí název aplikace, vpravo stav spojení s TWS, přepínač světlého
-a tmavého vzhledu a tlačítko připojení.
+Vlevo stojí název aplikace, vpravo přepínač světlého a tmavého vzhledu,
+stav spojení s TWS, ukazatel kvality spojení a tlačítko připojení.
+
+Ukazatel `TWS 2,1 ms · data 0,1 s` říká, že spojení nejen stojí, ale i žije:
+
+- **odezva TWS** je doba, za kterou TWS odpoví na dotaz na aktuální čas.
+  Neměří síť k IB - běží-li TWS na tomtéž stroji, je to odezva samotné
+  aplikace, tedy známka, že není zatuhlá. Měří se ve vlastním, řidším tempu
+  (`ui.latency_interval_sec`, výchozí 5 s), protože jde o skutečný dotaz do
+  TWS; nulou se měření vypne.
+- **stáří dat** je doba od nejčerstvější kotace ze všech odebíraných
+  kontraktů. Bere se nejnovější čas, ne nejstarší - nelikvidní opce se
+  aktualizuje zřídka i při zdravém spojení, kdežto stojící maximum znamená,
+  že nepřichází nic.
+
+Při odezvě nad 500 ms se ukazatel zvýrazní žlutě; stojící kotace (nad 15 s)
+se hlásí jen během seance - mimo obchodní hodiny trh nic neposílá a varování
+by svítilo pořád. Bez spojení se ukazatel skrývá.
 
 Mimo obchodní hodiny se v hlavičce ukazuje odpočet do nejbližšího otevření
 burzy (`Otevření trhu za ...`). Časuje se v časové zóně burzy podle voleb
@@ -325,6 +341,7 @@ se mění:
 | `strike.mode`, `strike.otm_steps` | jak se vybírá strike |
 | `expiration.mode`, `expiration.min_dte` | jak se vybírá expirace |
 | `ui.port`, `ui.dark` | webové rozhraní |
+| `ui.latency_interval_sec` | jak často se měří odezva TWS pro ukazatel v hlavičce (0 = vypnuto) |
 
 ---
 

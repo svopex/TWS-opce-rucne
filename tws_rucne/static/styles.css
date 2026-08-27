@@ -30,6 +30,21 @@
   color: #fee2e2;
 }
 
+/* Kvalita spojení - odezva TWS a stáří tržních dat */
+.stav-linky {
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  /* Číslice stejné šířky, aby text při každém měření neposkakoval */
+  font-variant-numeric: tabular-nums;
+  margin-right: 12px;
+}
+
+/* Pomalá odezva nebo stojící kotace během seance */
+.stav-linky.linka-varovani {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
 /* Odpočet do otevření burzy - zobrazuje se mimo obchodní hodiny */
 .odpocet-otevreni {
   color: #cbd5e1;
