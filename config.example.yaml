@@ -1,0 +1,95 @@
+# Konfigurace aplikace pro ruční obchodování opcí přes TWS API.
+# Soubor se při prvním spuštění zkopíruje jako config.yaml; upravujte config.yaml.
+
+# --- Spojení na TWS / IB Gateway ---
+connection:
+  host: 127.0.0.1
+  #   7496 = TWS (nastaveno na tomto stroji)
+  #   7497 = TWS druhý profil (papírový/ostrý podle instalace)
+  #   4002 = IB Gateway papírový účet
+  #   4001 = IB Gateway ostrý účet  port: 7496
+  port: 7496
+  # Číslo klienta musí být v rámci TWS jedinečné - jiné než u ostatních aplikací
+  client_id: 21
+  # true = aplikace nesmí zadávat příkazy (jen sledování)
+  readonly: false
+  # Prázdné = použije se první účet nalezený na spojení
+  account: ""
+  # 1 = live, 2 = frozen, 3 = delayed, 4 = delayed frozen
+  market_data_type: 1
+  connect_timeout: 8.0
+  # Automatické obnovování spojení v monitorovací smyčce
+  auto_reconnect: true
+  reconnect_delay_sec: 5.0
+
+# --- Obchodní parametry ---
+trading:
+  exchange: SMART
+  currency: USD
+  # Platnost příkazů: DAY = do konce obchodního dne, GTC = do zrušení
+  tif: DAY
+  # true = příkazy smí být vyplněny i mimo hlavní obchodní hodiny
+  outside_rth: false
+  # Množství předvyplněné ve formuláři
+  default_quantity: 1
+  # Výchozí typ opce ve formuláři: C = CALL, P = PUT
+  default_right: C
+  min_quantity: 1
+  max_quantity: 100
+  # Kolik kontraktů zůstane jako runner při prodeji základní pozice.
+  # Tlačítko "nechat runner" tedy prodá množství snížené o tuto hodnotu
+  # a u pozice o velikosti runneru (typicky 1 ks) se vůbec nenabízí.
+  runner_quantity: 1
+  # Tolerance nad ASK v procentech pro nákup "za ASK".
+  # Nula znamená limit přesně na ASK; malá tolerance pomáhá projít,
+  # když se kotace během zadávání pohne.
+  ask_tolerance_pct: 0.0
+  # Tolerance pod BID v procentech pro prodej "za BID"
+  bid_tolerance_pct: 0.0
+  # Spread, nad kterým rozhraní upozorní, že se obchod prodraží.
+  # Nákup se nezakazuje - o zadání rozhoduje obchodník.
+  max_spread_pct: 7.0
+
+# --- Výběr expirace ---
+expiration:
+  # nearest = nejbližší expirace splňující min_dte, fixed = konkrétní datum
+  mode: nearest
+  # Minimální počet dní do expirace (0 = i dnešní expirace)
+  min_dte: 0
+  # Datum ve tvaru YYYYMMDD, použije se pouze při mode: fixed
+  fixed_date: ""
+
+# --- Výběr strike ceny podle aktuální ceny podkladu ---
+strike:
+  # otm_offset = strike odsazený od aktuální ceny mimo peníze (u CALL nad ní,
+  #              u PUT pod ní), atm = nejbližší strike aktuální ceně
+  mode: otm_offset
+  # Kolikátý strike za aktuální cenou se vybere při mode: otm_offset.
+  # Počítá se v krocích rastru řetězce, takže jedno nastavení platí
+  # pro každý ticker: 1 = první strike mimo peníze.
+  otm_steps: 1
+
+# --- Monitorovací smyčka ---
+engine:
+  poll_interval_sec: 1.0
+  # Jak dlouho čekat na první ceny z TWS při přípravě zadání
+  market_data_timeout_sec: 6.0
+  # Dorazí-li u opce nejdřív jen poslední/závěrečná cena, kolik sekund
+  # se ještě počká na úplnou kotaci BID/ASK
+  quotes_grace_sec: 1.5
+
+# --- Ukládání stavu ---
+state:
+  # false = stav se neukládá a po restartu aplikace o pozicích neví
+  enabled: true
+  file: state.json
+
+# --- Webové rozhraní ---
+ui:
+  host: 127.0.0.1
+  port: 8081
+  refresh_interval_sec: 1.0
+  # Výchozí vzhled; poslední volba obchodníka má přednost
+  dark: false
+  # Kolik událostí si aplikace pamatuje v panelu průběhu
+  log_lines: 200

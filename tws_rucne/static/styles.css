@@ -1,0 +1,370 @@
+/* Styly aplikace pro ruční obchodování opcí přes TWS */
+
+/* --- Hlavička --- */
+.hlavicka {
+  align-items: center;
+  background-color: #1f2933;
+  padding: 8px 16px;
+}
+
+.hlavicka .nazev {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.stav-spojeni {
+  font-size: 0.85rem;
+  margin-right: 12px;
+  padding: 3px 10px;
+  border-radius: 10px;
+}
+
+.spojeni-ok {
+  background-color: #1b5e20;
+  color: #e8f5e9;
+}
+
+.spojeni-chyba {
+  background-color: #7f1d1d;
+  color: #fee2e2;
+}
+
+/* --- Pruh s upozorněním na pozice bez dozoru --- */
+.pruh-varovani {
+  align-items: flex-start;
+  background-color: #7f1d1d;
+  /* Více pozic se vypisuje pod sebou, dlouhý text se zalomí */
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 16px;
+  width: 100%;
+}
+
+.pruh-varovani .pruh-text {
+  color: #fee2e2;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+/* --- Rozvržení stránky --- */
+.obsah {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 16px;
+  padding: 12px;
+  width: 100%;
+}
+
+.panel-formular {
+  flex: 0 0 420px;
+  gap: 12px;
+  min-width: 380px;
+}
+
+.panel-prehled {
+  flex: 1 1 auto;
+  gap: 12px;
+  min-width: 0;
+}
+
+.karta {
+  gap: 10px;
+  padding: 14px;
+  width: 100%;
+}
+
+.nadpis-sekce {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* --- Formulář --- */
+.radek-formular {
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+.pole-ticker {
+  flex: 1 1 55%;
+  /* Ticker se zadává velkými písmeny, ať je zápis jednotný */
+  text-transform: uppercase;
+}
+
+.pole-mnozstvi {
+  flex: 1 1 40%;
+}
+
+/* --- Náhled vybraného kontraktu --- */
+.nahled {
+  gap: 2px;
+  width: 100%;
+}
+
+.nahled-kontrakt {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.nahled-radek {
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.nahled-nacitani {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.nahled-varovani {
+  gap: 2px;
+  width: 100%;
+}
+
+.varovani-radek {
+  background-color: #fef3c7;
+  border-left: 3px solid #d97706;
+  border-radius: 4px;
+  color: #92400e;
+  font-size: 0.82rem;
+  padding: 5px 8px;
+}
+
+.radek-tlacitka-nakup {
+  gap: 8px;
+  width: 100%;
+}
+
+.radek-tlacitka-nakup .q-btn {
+  flex: 1 1 auto;
+}
+
+/* --- Přehled pozic --- */
+.karta-prehled {
+  gap: 8px;
+}
+
+/* Nadpis přehledu s tlačítkem pro úklid ukončených pozic vpravo */
+.radek-nadpis-prehled {
+  align-items: center;
+  width: 100%;
+}
+
+.radek-nadpis-prehled .q-btn {
+  font-size: 0.75rem;
+}
+
+.seznam-pozic {
+  gap: 10px;
+  width: 100%;
+}
+
+.prazdny-prehled {
+  color: #64748b;
+  font-size: 0.86rem;
+  font-style: italic;
+}
+
+.karta-pozice {
+  border-left: 4px solid #94a3b8;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.radek-pozice-hlavicka {
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.popis-kontraktu {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.radek-pozice-udaje {
+  color: #475569;
+  column-gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  row-gap: 2px;
+  width: 100%;
+}
+
+.udaj-vysledek {
+  font-weight: 600;
+}
+
+.vysledek-zisk {
+  color: #15803d;
+}
+
+.vysledek-ztrata {
+  color: #b91c1c;
+}
+
+.vysledek-nula {
+  color: #475569;
+}
+
+.hlaska-pozice {
+  color: #334155;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.radek-pozice-tlacitka {
+  column-gap: 6px;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  width: 100%;
+}
+
+.radek-pozice-tlacitka .q-btn,
+.radek-prodej .q-btn {
+  font-size: 0.75rem;
+}
+
+/* Prodejní tlačítka stojí v mřížce se stejně širokými sloupci, aby řádek
+   s prodejem celé pozice a řádek se zachováním runneru ležely přesně nad
+   sebou. Sloupce vznikají podle počtu tlačítek (grid-auto-flow: column),
+   takže přibylá přirážka se v nabídce projeví sama. */
+.radek-prodej {
+  display: grid;
+  gap: 6px;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  /* fit-content s podíly 1fr dá všem sloupcům šířku toho nejširšího popisku:
+     tlačítka jsou stejně široká, ale řádek se neroztahuje přes celou kartu */
+  max-width: 100%;
+  width: fit-content;
+}
+
+.radek-prodej .q-btn {
+  min-width: 0;
+  width: 100%;
+}
+
+/* Delší popisek se v úzkém sloupci zalomí, místo aby z tlačítka přetekl */
+.radek-prodej .q-btn__content {
+  line-height: 1.15;
+  white-space: normal;
+}
+
+/* --- Odznaky stavu a směru --- */
+.odznak {
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.stav-nakupuje {
+  background-color: #e0f2fe;
+  color: #075985;
+}
+
+.stav-otevreno {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.stav-prodava {
+  background-color: #ffedd5;
+  color: #9a3412;
+}
+
+.stav-uzavreno {
+  background-color: #e2e8f0;
+  color: #334155;
+}
+
+.stav-zruseno {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+.stav-chyba {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.odznak-smer {
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+}
+
+.smer-long {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.smer-short {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+/* --- Nastavení a průběh --- */
+.karta-config .config-text,
+.log-radek {
+  color: #475569;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.karta-log {
+  gap: 6px;
+}
+
+.log-obsah {
+  gap: 1px;
+  max-height: 260px;
+  overflow-y: auto;
+  width: 100%;
+}
+
+.log-radek {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}
+
+/* --- Tmavý vzhled --- */
+.body--dark .nahled-radek,
+.body--dark .radek-pozice-udaje,
+.body--dark .hlaska-pozice,
+.body--dark .karta-config .config-text,
+.body--dark .log-radek,
+.body--dark .prazdny-prehled,
+.body--dark .nahled-nacitani {
+  color: #cbd5e1;
+}
+
+.body--dark .vysledek-zisk {
+  color: #4ade80;
+}
+
+.body--dark .vysledek-ztrata {
+  color: #f87171;
+}
+
+.body--dark .vysledek-nula {
+  color: #cbd5e1;
+}
+
+.body--dark .varovani-radek {
+  background-color: #78350f;
+  border-left-color: #fbbf24;
+  color: #fef3c7;
+}
+
+.body--dark .karta-pozice {
+  border-left-color: #475569;
+}
