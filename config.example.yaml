@@ -55,7 +55,7 @@ expiration:
   # nearest = nejbližší expirace splňující min_dte, fixed = konkrétní datum
   mode: nearest
   # Minimální počet dní do expirace (0 = i dnešní expirace)
-  min_dte: 0
+  min_dte: 1
   # Datum ve tvaru YYYYMMDD, použije se pouze při mode: fixed
   fixed_date: ""
 

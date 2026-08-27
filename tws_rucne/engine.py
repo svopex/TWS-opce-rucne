@@ -24,6 +24,7 @@ from .models import (
     RIGHT_LABELS,
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
+    SELL_SCOPE_ONE,
     Position,
     PositionState,
     cislo_text,
@@ -658,7 +659,8 @@ class ManualEngine:
 
         kind  = 'bid' prodává na nabízené ceně, 'mid' na středu trhu.
         scope = 'all' prodává celou drženou pozici, 'base' jen základní část,
-        takže v trhu zůstane runner (počet kontraktů z konfigurace).
+        takže v trhu zůstane runner (počet kontraktů z konfigurace), a 'one'
+        jediný kontrakt - pro odprodávání pozice po kusech.
         markup_pct zvedne limitní cenu o zadaná procenta nad zvolenou cenou -
         prodej nad středem trhu vynese víc, ale vyplní se hůř.
 
@@ -671,7 +673,7 @@ class ManualEngine:
         """
         if kind not in calc.SELL_KINDS:
             raise ValueError(f"Neznámý druh prodeje: {kind}")
-        if scope not in (SELL_SCOPE_ALL, SELL_SCOPE_BASE):
+        if scope not in (SELL_SCOPE_ALL, SELL_SCOPE_BASE, SELL_SCOPE_ONE):
             raise ValueError(f"Neznámý rozsah prodeje: {scope}")
         if not self.ib.connected:
             raise RuntimeError("Není navázáno spojení s TWS.")
@@ -729,8 +731,7 @@ class ManualEngine:
         )
         position.sell_trade = self.ib.place(position.option_contract, order)
 
-        zbyde = position.open_quantity - mnozstvi
-        popis_zbytku = f", v pozici zůstane {zbyde} ks (runner)" if zbyde else ""
+        popis_zbytku = self._zbytek_text(position, scope, mnozstvi)
         position.set_state(
             PositionState.SELLING,
             f"Prodejní příkaz v trhu: {mnozstvi} ks za LMT {cislo_text(limit)} "
@@ -739,6 +740,22 @@ class ManualEngine:
         self.log_event(f"{position.id}: {position.message}")
         self._notify()
         return position
+
+    @staticmethod
+    def _zbytek_text(position: Position, scope: str, quantity: int) -> str:
+        """
+        Popis toho, co v pozici po prodeji zbude.
+
+        Runnerem se zbytek nazve jen tam, kde o něj skutečně jde - tedy
+        při prodeji základní pozice. Po prodeji jednoho kusu zbývá prostě
+        zbytek pozice.
+        """
+        zbyva = position.open_quantity - quantity
+        if zbyva <= 0:
+            return ""
+        if scope == SELL_SCOPE_BASE:
+            return f", v pozici zbývá runner ({zbyva} ks)"
+        return f", v pozici zbývá {zbyva} ks"
 
     def _reprice_sell(
         self,
@@ -781,8 +798,7 @@ class ManualEngine:
         position.sell_limit = limit
         position.sell_quantity = celkem
 
-        zbyde = position.open_quantity - quantity
-        popis_zbytku = f", v pozici zůstane {zbyde} ks (runner)" if zbyde else ""
+        popis_zbytku = self._zbytek_text(position, scope, quantity)
         prodano = (
             f" (prodáno {position.sell_settled_quantity} ks)"
             if position.sell_settled_quantity
@@ -1072,16 +1088,26 @@ class ManualEngine:
         return True
 
     def _sync_commissions(self) -> bool:
-        """Převezme z TWS provize účtované k příkazům aplikace."""
+        """
+        Převezme z TWS provize účtované k příkazům aplikace.
+
+        Podle druhu příkazu se ukládají zvlášť nákupní a prodejní - přehled
+        výsledků je rozděluje mezi uzavřenou a otevřenou část pozice.
+        """
         zmena = False
         for position_id, zaznamy in self.ib.commissions().items():
             position = self.positions.get(position_id)
             if position is None:
                 continue
-            for exec_id, castka in zaznamy.items():
-                if position.commissions.get(exec_id) == castka:
+            for exec_id, (druh, castka) in zaznamy.items():
+                cil = (
+                    position.sell_commissions
+                    if druh.startswith("sell")
+                    else position.buy_commissions
+                )
+                if cil.get(exec_id) == castka:
                     continue
-                position.commissions[exec_id] = castka
+                cil[exec_id] = castka
                 zmena = True
         return zmena
 
@@ -1139,6 +1165,10 @@ class ManualEngine:
                 self.log_event(f"{position.id}: obnova selhala - {exc}")
             self.positions[position.id] = position
 
+        # Držené množství podle TWS je závazné; srovnává se až teď, kdy jsou
+        # obnovené všechny pozice - na jednom kontraktu jich může běžet víc
+        self._reconcile_positions(drzene)
+
         # Opční pozice, ke kterým se nepodařilo přiřadit záznam, aplikace neřídí
         self._warn_unmanaged(drzene)
 
@@ -1179,15 +1209,17 @@ class ManualEngine:
         info = drzene.get(option.conId)
         drzeno = int(info.quantity) if info else 0
 
-        # Nákup bez příkazu v TWS: buď se stihl vyplnit, nebo zmizel
+        # Nákup bez příkazu v TWS: buď se stihl vyplnit, nebo zmizel.
+        # Kolik z drženého množství patří právě této pozici, se rozhodne
+        # až při srovnání po kontraktech - tady se vychází ze zadaného počtu.
         if position.state == PositionState.BUYING and position.buy_trade is None:
             if drzeno >= 1:
-                position.filled_quantity = drzeno
+                position.filled_quantity = position.filled_quantity or position.quantity
                 position.fill_price = position.fill_price or position.buy_limit
                 position.set_state(
                     PositionState.OPEN,
-                    f"Nákupní příkaz už v TWS není, na účtu je {drzeno} ks - "
-                    f"pozice se považuje za nakoupenou. Ověřte cenu nákupu v TWS.",
+                    f"Nákupní příkaz už v TWS není, na účtu kontrakt je - pozice "
+                    f"se považuje za nakoupenou. Ověřte množství i cenu v TWS.",
                 )
             else:
                 position.set_state(
@@ -1206,44 +1238,88 @@ class ManualEngine:
             )
             self.log_event(f"{position.id}: {position.message}")
 
-        # Držené množství podle TWS je závazné
-        if position.state in (PositionState.OPEN, PositionState.SELLING):
-            self._reconcile_quantity(position, drzeno)
-
-    def _reconcile_quantity(self, position: Position, drzeno: int) -> None:
+    def _reconcile_positions(self, drzene: dict[int, PositionInfo]) -> None:
         """
-        Srovná držené množství podle TWS s tím, co si pozice pamatuje.
+        Srovná držené množství podle TWS s tím, co evidují pozice.
 
-        Rozdíl vzniká, když se s kontrakty hýbe mimo aplikaci (ručně v TWS)
-        nebo když aplikace zrovna neběžela. TWS má vždy pravdu; chybějící
-        prodejní cena se odhaduje z posledního limitu, což se hlásí do logu.
+        Na jednom opčním kontraktu může běžet víc pozic - třeba když se
+        dokupovalo po částech - jenže TWS hlásí jediný součet za celý
+        kontrakt. Množství se proto porovnává po kontraktech: dokud součet
+        sedí, nemění se nic. Bez toho by si každá pozice nárokovala celé
+        držené množství a aplikace by evidovala násobek skutečnosti.
         """
-        # Kusy prodané běžícím příkazem už z drženého množství odešly
-        ocekavano = position.open_quantity
-        if drzeno == ocekavano:
+        podle_kontraktu: dict[int, list[Position]] = {}
+        for position in self.positions.values():
+            if position.state.is_active and position.option_conid:
+                podle_kontraktu.setdefault(position.option_conid, []).append(position)
+
+        for conid, pozice in podle_kontraktu.items():
+            # Pořadí vzniku rozhoduje, ze které pozice se případný rozdíl bere
+            pozice.sort(key=lambda p: p.created_at)
+            info = drzene.get(conid)
+            drzeno = int(info.quantity) if info else 0
+            ocekavano = sum(p.open_quantity for p in pozice)
+            if drzeno != ocekavano:
+                self._apply_quantity_difference(pozice, drzeno - ocekavano)
+
+    def _apply_quantity_difference(self, pozice: list[Position], rozdil: int) -> None:
+        """
+        Srovná rozdíl mezi TWS a evidencí u pozic jednoho kontraktu.
+
+        TWS má vždy pravdu. Chybějící kusy se odepíšou od nejnovější pozice
+        (u té je nejpravděpodobnější, že se s ní hýbalo naposledy) a považují
+        se za prodané za odhadnutou cenu; přebývající se k nejnovější pozici
+        přidají. Obojí se hlásí, protože skutečné ceny aplikace nezná.
+
+        Pozice s nevyplněným nákupem se neupravují - jejich množství si řídí
+        příkaz v TWS a monitorovací smyčka by zásah stejně přepsala.
+        """
+        upravitelne = [
+            p for p in pozice
+            if p.state in (PositionState.OPEN, PositionState.SELLING)
+        ]
+        if not upravitelne:
+            popis = ", ".join(p.id for p in pozice)
+            self.log_event(
+                f"POZOR: držené množství v TWS neodpovídá evidenci ({popis}), "
+                f"rozdíl {rozdil:+d} ks. Pozice mají v trhu nákupní příkaz, "
+                f"proto se nic neupravuje - zkontrolujte je v TWS."
+            )
             return
 
-        rozdil = ocekavano - drzeno
         if rozdil > 0:
+            # Na účtu je víc kontraktů - dokupovalo se mimo aplikaci
+            cil = upravitelne[-1]
+            cil.filled_quantity += rozdil
+            cil.touch(
+                f"POZOR: na účtu je o {rozdil} ks více, než pozice evidovala - "
+                f"množství se převzalo z TWS. Zkontrolujte cenu nákupu."
+            )
+            self.log_event(f"{cil.id}: {cil.message}")
+            return
+
+        # Na účtu je méně kontraktů - prodávalo se mimo aplikaci
+        chybi = -rozdil
+        for position in reversed(upravitelne):
+            if chybi <= 0:
+                break
+            ubrat = min(chybi, position.open_quantity)
+            if ubrat <= 0:
+                continue
+
             odhad = position.sell_limit or position.mid or position.fill_price or 0.0
-            position.sold_quantity += rozdil
-            position.sold_value += rozdil * odhad
+            position.sold_quantity += ubrat
+            position.sold_value += ubrat * odhad
+            chybi -= ubrat
             position.touch(
-                f"POZOR: na účtu je o {rozdil} ks méně, než pozice evidovala - "
+                f"POZOR: na účtu je o {ubrat} ks méně, než pozice evidovala - "
                 f"kusy se považují za prodané za odhadovaných {cislo_text(odhad)}. "
                 f"Zkontrolujte skutečné ceny v TWS."
             )
+            self.log_event(f"{position.id}: {position.message}")
             if position.open_quantity <= 0:
                 position.set_state(PositionState.CLOSED)
                 self._release(position)
-        else:
-            # Na účtu je víc kontraktů - pozice byla dokoupena mimo aplikaci
-            position.filled_quantity += -rozdil
-            position.touch(
-                f"POZOR: na účtu je o {-rozdil} ks více, než pozice evidovala - "
-                f"množství se převzalo z TWS. Zkontrolujte cenu nákupu."
-            )
-        self.log_event(f"{position.id}: {position.message}")
 
     def _warn_unmanaged(self, drzene: dict[int, PositionInfo]) -> None:
         """

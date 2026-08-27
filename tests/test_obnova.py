@@ -30,7 +30,8 @@ class TestUlozeniStavu(ZakladSeStavem):
             sold_quantity=2,
             sold_value=7.4,
             sell_seq=1,
-            commissions={"EXEC-1": 2.0},
+            buy_commissions={"EXEC-1": 2.0},
+            sell_commissions={"EXEC-2": 1.5},
             state=PositionState.OPEN,
         )
         obnovena = store.dict_to_position(store.position_to_dict(puvodni))
@@ -40,7 +41,8 @@ class TestUlozeniStavu(ZakladSeStavem):
         self.assertEqual(obnovena.runner_quantity, 2)
         self.assertEqual(obnovena.open_quantity, 2)
         self.assertAlmostEqual(obnovena.sold_value, 7.4)
-        self.assertEqual(obnovena.commissions, {"EXEC-1": 2.0})
+        self.assertEqual(obnovena.buy_commissions, {"EXEC-1": 2.0})
+        self.assertEqual(obnovena.sell_commissions, {"EXEC-2": 1.5})
         self.assertEqual(obnovena.state, PositionState.OPEN)
 
     async def test_nakup_se_zapise_do_souboru(self):
@@ -92,8 +94,8 @@ class TestObnovaPoRestartu(ZakladSeStavem):
         obnovena = novy.position(position.id)
         self.assertEqual(obnovena.state, PositionState.OPEN)
         self.assertEqual(obnovena.open_quantity, 3)
-        # Cena nákupu se z TWS nedozvíme, obchodník ji musí ověřit sám
-        self.assertIn("Ověřte cenu nákupu", obnovena.message)
+        # Cenu ani přesné množství se z TWS nedozvíme, musí je ověřit obchodník
+        self.assertIn("Ověřte množství i cenu", obnovena.message)
 
     async def test_mensi_pozice_v_tws_se_povazuje_za_castecne_prodanou(self):
         position = await self.nakup_vyplnen(quantity=3)
@@ -147,3 +149,63 @@ class TestObnovaPoRestartu(ZakladSeStavem):
         dalsi = await novy.buy("AAPL", 1, "C", "ask")
         # Identifikátor nesmí kolidovat s obnovenou pozicí
         self.assertEqual(dalsi.id, "AAPL-2")
+
+
+class TestObnovaViceZapisuNaJednomKontraktu(ZakladSeStavem):
+    """
+    Na jednom opčním kontraktu může běžet víc pozic, TWS ale hlásí jediný
+    součet. Obnova je proto musí srovnávat dohromady, ne každou zvlášť.
+    """
+
+    async def _restartuj(self) -> ManualEngine:
+        """Založí nový engine nad stejnou náhradou TWS a spustí obnovu."""
+        novy = ManualEngine(self.cfg, self.ib)
+        await novy.restore()
+        return novy
+
+    async def _dve_pozice(self, prvni: int, druha: int):
+        """Nakoupí dvě pozice na tomtéž kontraktu."""
+        a = await self.nakup_vyplnen(quantity=prvni)
+        b = await self.nakup_vyplnen(quantity=druha)
+        return a, b
+
+    async def test_soucet_sedi_a_pozice_zustavaji_beze_zmeny(self):
+        # Pět a jeden kus na téže opci: TWS hlásí šest, obojí je v pořádku
+        pet, jeden = await self._dve_pozice(5, 1)
+        self.ib.held_positions = {OPTION_CONID: 6}
+
+        novy = await self._restartuj()
+        self.assertEqual(novy.position(pet.id).open_quantity, 5)
+        self.assertEqual(novy.position(jeden.id).open_quantity, 1)
+        # Žádná z pozic nesmí hlásit rozdíl proti TWS
+        for position in novy.positions.values():
+            self.assertNotIn("POZOR", position.message)
+
+    async def test_chybejici_kusy_se_odepisou_od_nejnovejsi_pozice(self):
+        pet, jeden = await self._dve_pozice(5, 1)
+        # Mimo aplikaci se prodaly dva kusy
+        self.ib.held_positions = {OPTION_CONID: 4}
+
+        novy = await self._restartuj()
+        # Nejnovější pozice odešla celá, zbytek ubral starší
+        self.assertEqual(novy.position(jeden.id).open_quantity, 0)
+        self.assertEqual(novy.position(jeden.id).state, PositionState.CLOSED)
+        self.assertEqual(novy.position(pet.id).open_quantity, 4)
+
+    async def test_prebyvajici_kusy_pripadnou_nejnovejsi_pozici(self):
+        pet, jeden = await self._dve_pozice(5, 1)
+        # Mimo aplikaci se dokoupily dva kusy
+        self.ib.held_positions = {OPTION_CONID: 8}
+
+        novy = await self._restartuj()
+        self.assertEqual(novy.position(pet.id).open_quantity, 5)
+        self.assertEqual(novy.position(jeden.id).open_quantity, 3)
+        self.assertIn("POZOR", novy.position(jeden.id).message)
+
+    async def test_soucet_odpovida_skutecnosti_i_po_srovnani(self):
+        await self._dve_pozice(5, 1)
+        self.ib.held_positions = {OPTION_CONID: 3}
+
+        novy = await self._restartuj()
+        drzeno = sum(p.open_quantity for p in novy.positions.values())
+        self.assertEqual(drzeno, 3)

@@ -12,9 +12,11 @@ from . import calc
 # Popisky typu opce pro zobrazení v rozhraní
 RIGHT_LABELS = {"C": "CALL", "P": "PUT"}
 
-# Rozsah prodeje: celá držená pozice, nebo jen základní část bez runneru
+# Rozsah prodeje: celá držená pozice, základní část bez runneru,
+# nebo jediný kontrakt - pro postupné odprodávání po kusech
 SELL_SCOPE_ALL = "all"
 SELL_SCOPE_BASE = "base"
+SELL_SCOPE_ONE = "one"
 
 # Přirážky k poptávané ceně nabízené prodejními tlačítky (v procentech).
 # Prodej nad ASK vynese víc, ale vyplní se s menší pravděpodobností.
@@ -118,8 +120,11 @@ class Position:
     sell_settled_quantity: int = 0
     sell_settled_value: float = 0.0
 
-    # Provize účtované TWS podle identifikátoru exekuce
-    commissions: dict[str, float] = field(default_factory=dict)
+    # Provize účtované TWS podle identifikátoru exekuce, zvlášť za nákup
+    # a za prodeje - přehled výsledků je rozděluje mezi uzavřenou a otevřenou
+    # část pozice a bez tohoto rozlišení by to nešlo
+    buy_commissions: dict[str, float] = field(default_factory=dict)
+    sell_commissions: dict[str, float] = field(default_factory=dict)
 
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -174,11 +179,13 @@ class Position:
         return self.filled_quantity > 0 and 0 < self.open_quantity <= self.runner_quantity
 
     def sell_quantity_for(self, scope: str) -> int:
-        """Kolik kontraktů se prodá pro daný rozsah ('all' nebo 'base')."""
+        """Kolik kontraktů se prodá pro daný rozsah ('all', 'base' nebo 'one')."""
         if scope == SELL_SCOPE_ALL:
             return self.open_quantity
         if scope == SELL_SCOPE_BASE:
             return self.base_quantity
+        if scope == SELL_SCOPE_ONE:
+            return 1 if self.open_quantity >= 1 else 0
         raise ValueError(f"Neznámý rozsah prodeje: {scope}")
 
     # ------------------------------------------------------------------
@@ -221,6 +228,21 @@ class Position:
         )
 
     @property
+    def can_sell_one(self) -> bool:
+        """
+        Prodej jediného kontraktu - pro odprodávání pozice po kusech.
+
+        Nenabízí se tam, kde by dělal totéž co jiný řádek: u pozice o jednom
+        kontraktu (to je prodej všeho) ani tehdy, když základní pozice vychází
+        právě na jeden kus.
+        """
+        return (
+            self.state in (PositionState.OPEN, PositionState.SELLING)
+            and self.open_quantity > 1
+            and self.base_quantity != 1
+        )
+
+    @property
     def can_reprice_buy(self) -> bool:
         """Nevyplněný nákupní příkaz lze přecenit na aktuální cenu."""
         return self.state == PositionState.BUYING
@@ -250,9 +272,40 @@ class Position:
         return calc.spread_pct(self.option_bid, self.option_ask)
 
     @property
+    def buy_commission(self) -> float:
+        """Provize zaplacené za nákup kontraktů."""
+        return sum(self.buy_commissions.values())
+
+    @property
+    def sell_commission(self) -> float:
+        """Provize zaplacené za dosavadní prodeje."""
+        return sum(self.sell_commissions.values())
+
+    @property
     def commission_total(self) -> float:
         """Součet provizí, které TWS k pozici zatím naúčtovala."""
-        return sum(self.commissions.values())
+        return self.buy_commission + self.sell_commission
+
+    @property
+    def open_commission(self) -> float:
+        """
+        Část nákupní provize připadající na dosud držené kusy.
+
+        Prodejní provize se otevřené části netýká - ta se zaplatí až při
+        prodeji, a dokud k němu nedojde, není co započítat.
+        """
+        koupeno = self.filled_quantity
+        if koupeno <= 0:
+            return 0.0
+        return self.buy_commission * self.open_quantity / koupeno
+
+    @property
+    def realized_commission(self) -> float:
+        """
+        Provize připadající na už prodanou část pozice - nákup prodaných
+        kusů a všechny prodeje. Zbytek nákupní provize drží otevřená část.
+        """
+        return self.commission_total - self.open_commission
 
     @property
     def realized_pnl(self) -> float | None:
@@ -295,6 +348,48 @@ class Position:
         pozici ale musí zůstat na očích.
         """
         return self.sold_quantity > 0 and self.open_quantity > 0
+
+    @property
+    def realized_pnl_net(self) -> float | None:
+        """Realizovaný výsledek po odečtení provizí, které na něj připadají."""
+        hruby = self.realized_pnl
+        if hruby is None:
+            return None
+        return hruby - self.realized_commission
+
+    @property
+    def open_pnl_net(self) -> float | None:
+        """
+        Výsledek držené části po odečtení nákupní provize, která na ni
+        připadá. Prodejní provize v něm být nemůže - ta ještě nevznikla.
+        """
+        hruby = self.unrealized_pnl
+        if hruby is None:
+            return None
+        return hruby - self.open_commission
+
+    @property
+    def avg_sell_price(self) -> float | None:
+        """Průměrná cena, za kterou prodané kontrakty odešly."""
+        if self.sold_quantity <= 0:
+            return None
+        return self.sold_value / self.sold_quantity
+
+    @property
+    def traded(self) -> bool:
+        """Pozice skutečně nakoupila, má tedy výsledek."""
+        return self.filled_quantity > 0
+
+    @property
+    def holding_seconds(self) -> float | None:
+        """
+        Jak dlouho se pozice drží, u ukončené jak dlouho se držela.
+        Bez nákupu není co měřit.
+        """
+        if self.fill_time is None:
+            return None
+        konec = datetime.now() if self.state.is_active else self.updated_at
+        return max(0.0, (konec - self.fill_time).total_seconds())
 
     @property
     def cost(self) -> float | None:

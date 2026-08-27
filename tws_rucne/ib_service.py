@@ -443,18 +443,21 @@ class IBService:
         """
         return list(self.ib.fills())
 
-    def commissions(self) -> dict[str, dict[str, float]]:
+    def commissions(self) -> dict[str, dict[str, tuple[str, float]]]:
         """
         Provize skutečně účtované TWS, roztříděné podle pozic aplikace.
 
-        Vrací identifikátor pozice -> {execId: provize v USD}. Klíčem je
+        Vrací identifikátor pozice -> {execId: (druh příkazu, provize v USD)}.
+        Druh je poslední část značky orderRef ('buy', 'sell1', ...), podle níž
+        se odliší provize za nákup od provizí za prodeje - přehled výsledků je
+        rozděluje mezi uzavřenou a otevřenou část pozice. Klíčem je
         identifikátor exekuce, takže opakované načtení téhož vyplnění hodnotu
         jen přepíše. Cizí příkazy se přeskakují.
 
         Zpráva o provizi dorazí z TWS až krátce po vyplnění; do té doby
         se záznam do výsledku nedostane.
         """
-        nalezene: dict[str, dict[str, float]] = {}
+        nalezene: dict[str, dict[str, tuple[str, float]]] = {}
         for fill in self._raw_fills():
             rozklad = parse_order_ref(fill.execution.orderRef or "")
             if rozklad is None:
@@ -464,8 +467,11 @@ class IBService:
             # před doručením zprávy je hodnota nulová - obojí se zahazuje
             if not isinstance(castka, (int, float)) or not math.isfinite(castka) or not castka:
                 continue
-            position_id, _ = rozklad
-            nalezene.setdefault(position_id, {})[fill.execution.execId] = float(castka)
+            position_id, druh = rozklad
+            nalezene.setdefault(position_id, {})[fill.execution.execId] = (
+                druh,
+                float(castka),
+            )
         return nalezene
 
     async def positions(self) -> dict[int, PositionInfo]:

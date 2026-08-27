@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tws_rucne.models import (
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
+    SELL_SCOPE_ONE,
     Position,
     PositionState,
     buy_button_label,
@@ -98,6 +99,27 @@ class TestDostupnostTlacitek(unittest.TestCase):
         p = pozice(quantity=5, filled=5, runner=2)
         self.assertEqual(p.sell_quantity_for(SELL_SCOPE_BASE), 3)
 
+    def test_prodej_jednoho_kusu(self):
+        # Ze tří kusů (runner 1) lze odprodat jediný kontrakt
+        p = pozice()
+        self.assertTrue(p.can_sell_one)
+        self.assertEqual(p.sell_quantity_for(SELL_SCOPE_ONE), 1)
+
+    def test_jeden_kus_se_nenabizi_u_jednokontraktove_pozice(self):
+        # Prodej jednoho kusu by dělal totéž co prodej všeho
+        self.assertFalse(pozice(quantity=1, filled=1).can_sell_one)
+
+    def test_jeden_kus_se_nenabizi_kdyz_je_shodny_se_zakladni_pozici(self):
+        # Ze dvou kusů s runnerem 1 vychází základní pozice také na 1 ks
+        p = pozice(quantity=2, filled=2)
+        self.assertEqual(p.sell_quantity_for(SELL_SCOPE_BASE), 1)
+        self.assertFalse(p.can_sell_one)
+
+    def test_vetsi_runner_prodej_jednoho_kusu_neblokuje(self):
+        # Ze čtyř kusů s runnerem 2 vychází základní pozice na 2 ks
+        p = pozice(quantity=4, filled=4, runner=2)
+        self.assertTrue(p.can_sell_one)
+
     def test_neznamy_rozsah_je_chyba(self):
         with self.assertRaises(ValueError):
             pozice().sell_quantity_for("polovina")
@@ -132,9 +154,26 @@ class TestVysledekPozice(unittest.TestCase):
     def test_provize_snizuji_cisty_vysledek(self):
         p = pozice(sold=3)
         p.sold_value = 3 * 3.70
-        p.commissions = {"EXEC-1": 2.0, "EXEC-2": 2.5}
+        p.buy_commissions = {"EXEC-1": 2.0}
+        p.sell_commissions = {"EXEC-2": 2.5}
         self.assertAlmostEqual(p.gross_pnl, 150.0)
         self.assertAlmostEqual(p.net_pnl, 145.5)
+
+    def test_provize_se_deli_mezi_prodanou_a_drzenou_cast(self):
+        # Ze čtyř nakoupených kusů jsou dva prodané: nákupní provize se dělí
+        # napůl, prodejní patří celá k realizované části
+        p = pozice(quantity=4, filled=4, sold=2)
+        p.buy_commissions = {"EXEC-1": 4.0}
+        p.sell_commissions = {"EXEC-2": 2.0}
+        self.assertAlmostEqual(p.open_commission, 2.0)
+        self.assertAlmostEqual(p.realized_commission, 4.0)
+        self.assertAlmostEqual(p.commission_total, 6.0)
+
+    def test_bez_nakupu_zadna_provize_na_otevrenou_cast(self):
+        p = pozice(quantity=2, filled=0)
+        p.buy_commissions = {"EXEC-1": 1.0}
+        self.assertAlmostEqual(p.open_commission, 0.0)
+        self.assertAlmostEqual(p.realized_commission, 1.0)
 
 
 class TestPopiskyTlacitek(unittest.TestCase):

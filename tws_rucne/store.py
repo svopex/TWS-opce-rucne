@@ -53,7 +53,8 @@ SAVED_FIELDS = (
     "sell_settled_value",
     # Provize účtované TWS - po restartu je TWS pošle jen za dnešní den,
     # u starších pozic by se tedy bez uložení ztratily
-    "commissions",
+    "buy_commissions",
+    "sell_commissions",
 )
 
 # Pole s časovým údajem se ukládají v textovém tvaru ISO
@@ -74,6 +75,12 @@ def dict_to_position(data: dict[str, Any]) -> Position:
     """Sestaví pozici z uloženého slovníku."""
     kwargs = {name: data.get(name) for name in SAVED_FIELDS if data.get(name) is not None}
     position = Position(**kwargs)
+
+    # Starší zápis vedl provize v jediném slovníku bez rozlišení druhu.
+    # Berou se jako nákupní - u uzavřené pozice na tom nezáleží (otevřená
+    # část je nulová), u běžící se rozdělení srovná první novou provizí.
+    for exec_id, castka in (data.get("commissions") or {}).items():
+        position.buy_commissions.setdefault(exec_id, castka)
 
     # Stav se obnoví z uloženého zápisu, neznámý stav se považuje za chybový
     try:

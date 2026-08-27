@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from tests.fake_ib import OPTION_CONID, UNDERLYING_CONID
 from tests.zaklad import ZakladEnginu
-from tws_rucne.models import SELL_SCOPE_ALL, SELL_SCOPE_BASE, PositionState
+from tws_rucne.models import (
+    SELL_SCOPE_ALL,
+    SELL_SCOPE_BASE,
+    SELL_SCOPE_ONE,
+    PositionState,
+)
 
 
 class TestPripravaZadani(ZakladEnginu):
@@ -506,3 +511,39 @@ class TestUklidPrehledu(ZakladEnginu):
         self.engine.remove_finished()
         self.engine.release_preview()
         self.assertEqual(self.ib.subscribed, {})
+
+
+class TestProdejPoKusech(ZakladEnginu):
+    """Řádek s jedním kusem umožňuje odprodávat pozici postupně."""
+
+    async def test_prodej_jednoho_kusu(self):
+        position = await self.nakup_vyplnen(quantity=4)
+        await self.prodej_vyplnen(position, "bid", SELL_SCOPE_ONE, cena=3.60)
+        self.assertEqual(self.ib.placed[-1].order.totalQuantity, 1)
+        self.assertEqual(position.open_quantity, 3)
+        self.assertEqual(position.state, PositionState.OPEN)
+
+    async def test_opakovanym_prodejem_lze_pozici_vyprodat(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        for zbyva in (2, 1, 0):
+            await self.prodej_vyplnen(position, "bid", SELL_SCOPE_ONE, cena=3.60)
+            self.assertEqual(position.open_quantity, zbyva)
+        self.assertEqual(position.state, PositionState.CLOSED)
+        self.assertEqual(position.sold_quantity, 3)
+
+    async def test_hlaska_o_zbytku_nemluvi_o_runneru(self):
+        # Runner se jmenuje jen tam, kde o něj skutečně jde
+        position = await self.nakup_vyplnen(quantity=4)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_ONE)
+        self.assertIn("v pozici zbývá 3 ks", position.message)
+        self.assertNotIn("runner", position.message)
+
+    async def test_hlaska_u_zakladni_pozice_runner_zminuje(self):
+        position = await self.nakup_vyplnen(quantity=4)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_BASE)
+        self.assertIn("runner", position.message)
+
+    async def test_neznamy_rozsah_engine_odmitne(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        with self.assertRaises(ValueError):
+            await self.engine.sell(position.id, "bid", "polovina")

@@ -13,10 +13,12 @@ from . import calc
 from .config import AppConfig
 from .engine import ManualEngine, Preview
 from .ib_service import IBService
+from .report_dialog import ReportDialog
 from .models import (
     ASK_MARKUPS,
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
+    SELL_SCOPE_ONE,
     Position,
     buy_button_label,
     pnl_text,
@@ -133,6 +135,11 @@ class PositionCard:
             with self.radek_prodej_zaklad:
                 self.btn_zaklad = self._sell_buttons(SELL_SCOPE_BASE, "orange-8")
 
+            # Prodej jediného kontraktu - pro odprodávání pozice po kusech
+            self.radek_prodej_kus = ui.element("div").classes("radek-prodej")
+            with self.radek_prodej_kus:
+                self.btn_kus = self._sell_buttons(SELL_SCOPE_ONE, "teal-7")
+
             # Správa pozice - stažení příkazu z trhu a úklid přehledu
             with ui.row().classes("radek-pozice-tlacitka") as self.radek_sprava:
                 self.btn_zrusit = ui.button(
@@ -246,9 +253,10 @@ class PositionCard:
                 f"{price_kind_label(kind)}; druhý příkaz nevzniká."
             )
 
-        for seznam, mnozstvi, dostupne in (
-            (self.btn_vse, position.open_quantity, position.can_sell_all),
-            (self.btn_zaklad, position.base_quantity, position.can_sell_base),
+        for seznam, scope, mnozstvi, dostupne in (
+            (self.btn_vse, SELL_SCOPE_ALL, position.open_quantity, position.can_sell_all),
+            (self.btn_zaklad, SELL_SCOPE_BASE, position.base_quantity, position.can_sell_base),
+            (self.btn_kus, SELL_SCOPE_ONE, 1, position.can_sell_one),
         ):
             for tlacitko, napoveda, kind, markup in seznam:
                 tlacitko.set_visibility(dostupne)
@@ -261,12 +269,17 @@ class PositionCard:
                 tlacitko.set_enabled(limit is not None)
 
                 # Popisek je kvůli délce úsporný, nápověda proto říká, co
-                # tlačítko udělá a co v pozici zůstane
-                zustane = position.open_quantity - mnozstvi
+                # tlačítko udělá a co v pozici zbude
+                zbyva = position.open_quantity - mnozstvi
+                if not zbyva:
+                    zbytek = "."
+                elif scope == SELL_SCOPE_BASE:
+                    zbytek = f"; v pozici zbývá runner ({zbyva} ks)."
+                else:
+                    zbytek = f"; v pozici zbývá {zbyva} ks."
                 napoveda.set_text(
                     f"{'Přecení příkaz v trhu na' if position.sell_pending else 'Prodá'} "
-                    f"{mnozstvi} ks za {price_kind_label(kind, markup)}"
-                    + (f"; v pozici zůstane {zustane} ks (runner)." if zustane else ".")
+                    f"{mnozstvi} ks za {price_kind_label(kind, markup)}{zbytek}"
                 )
 
         self.btn_zrusit.set_visibility(position.can_cancel)
@@ -276,6 +289,7 @@ class PositionCard:
         self.radek_nakup.set_visibility(position.can_reprice_buy)
         self.radek_prodej_vse.set_visibility(position.can_sell_all)
         self.radek_prodej_zaklad.set_visibility(position.can_sell_base)
+        self.radek_prodej_kus.set_visibility(position.can_sell_one)
         self.radek_sprava.set_visibility(position.can_cancel or position.can_remove)
 
     def remove(self) -> None:
@@ -317,6 +331,13 @@ class TradingUI:
         self.last_unmanaged: set[int] | None = None
 
         self._build_header()
+
+        # Popup s přehledem výsledků dne; grafy v něm se řídí zvoleným
+        # vzhledem, proto dostane přístup k přepínači z hlavičky
+        self.report_dialog = ReportDialog(
+            self.cfg, self.engine, lambda: bool(self.dark_mode.value)
+        )
+        self.report_dialog.build()
 
         # Pruh s upozorněním na opční pozice, které aplikace neřídí
         self.warning_bar = ui.row().classes("pruh-varovani")
@@ -438,6 +459,12 @@ class TradingUI:
             with ui.row().classes("radek-nadpis-prehled"):
                 ui.label("Pozice").classes("nadpis-sekce")
                 ui.space()
+                # Souhrn obchodního dne v popupu - dlaždice, seznamy a grafy
+                ui.button("Výsledky", on_click=self.report_dialog.open).props(
+                    "dense outline color=primary"
+                ).classes("tlacitko-vysledky").tooltip(
+                    "Přehled výsledků dne: souhrn, seznam pozic a grafy."
+                )
                 # Úklid obrazovky - ukončené pozice už není co hlídat
                 self.btn_uklid = ui.button(
                     "Odstranit ukončené", on_click=self.remove_finished
@@ -754,6 +781,8 @@ class TradingUI:
 
         self._refresh_positions()
         self._refresh_log()
+        # Otevřený přehled výsledků tiká živě ze stejné smyčky
+        self.report_dialog.refresh()
 
     def _refresh_status(self) -> None:
         """Vypíše stav spojení a přepíše popisek tlačítka pro připojení."""

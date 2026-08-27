@@ -21,6 +21,7 @@ vzniká výhradně stiskem tlačítka.
   - [Prodej a runner](#prodej-a-runner)
   - [Přecenění příkazu, kterému utekl trh](#přecenění-příkazu-kterému-utekl-trh)
   - [Ochrana proti druhému příkazu](#ochrana-proti-druhému-příkazu)
+- [Přehled výsledků](#přehled-výsledků)
 - [Výběr expirace a strike](#výběr-expirace-a-strike)
 - [Výsledek pozice](#výsledek-pozice)
 - [Konfigurace](#konfigurace)
@@ -39,8 +40,8 @@ vzniká výhradně stiskem tlačítka.
    střed trhu, spread, deltu a odhad nákladů.
 3. Tlačítky **Koupit za ASK** nebo **Koupit za MID** zadáte limitní nákupní
    příkaz.
-4. Po nakoupení nabídne pozice tlačítka pro prodej: celé pozice, nebo jen
-   její základní části, takže v trhu zůstane **runner**.
+4. Po nakoupení nabídne pozice tlačítka pro prodej: celé pozice, její
+   základní části (v trhu zůstane **runner**), nebo jediného kontraktu.
 
 Všechny příkazy jsou limitní. Cena se bere z aktuální kotace v okamžiku
 stisku tlačítka a zaokrouhluje se na minimální tik kontraktu.
@@ -124,28 +125,32 @@ Na tlačítku je vždy vidět cena, se kterou příkaz do trhu půjde - napřík
 
 ### Prodej a runner
 
-Po vyplnění nákupu nabídne karta pozice dva řádky tlačítek - v prvním se
-prodává celá pozice, ve druhém jen její základní část:
+Po vyplnění nákupu nabídne karta pozice tři řádky tlačítek, které se liší
+jen množstvím - u pozice se třemi kontrakty a runnerem 1 ks vypadají takto:
 
 ```
 BID (3 ks)  MID (3 ks)  ASK (3 ks)  ASK +1 %  +2 %  +3 %  +4 %  +5 %  +7 %  +9 %
 BID (2 ks)  MID (2 ks)  ASK (2 ks)  ASK +1 %  +2 %  +3 %  +4 %  +5 %  +7 %  +9 %
+BID (1 ks)  MID (1 ks)  ASK (1 ks)  ASK +1 %  +2 %  +3 %  +4 %  +5 %  +7 %  +9 %
 ```
 
 Nabídka jde zleva doprava od nejjistějšího vyplnění k nejvyšší ceně: na BID
 se prodá hned a zaplatí se celý spread, na MID se čeká na střed trhu, na ASK
 se spread naopak inkasuje a přirážky míří ještě výš.
 
-Horní řádek prodává celou drženou pozici, spodní jen její základní část, takže
-v trhu zůstane runner - v příkladu výše 3 ks proti 2 ks. Oba řádky mají stejně
-široké sloupce, takže tlačítka téhož druhu leží přesně nad sebou; který řádek
-je který, prozradí barva (červená = celá pozice, oranžová = runner zůstává)
-a bublina s nápovědou. Popisek začíná cenou a končí částkou, se kterou příkaz
-skutečně půjde do trhu.
+| Řádek | Barva | Co prodá |
+| --- | --- | --- |
+| první | červená | celou drženou pozici |
+| druhý | oranžová | základní pozici, v trhu zůstane runner |
+| třetí | tyrkysová | jediný kontrakt - pro odprodávání po kusech |
 
+Všechny řádky mají stejně široké sloupce, takže tlačítka téhož druhu leží
+přesně nad sebou; co které udělá, řekne bublina s nápovědou. Popisek začíná
+cenou a končí částkou, se kterou příkaz skutečně půjde do trhu.
 
-Na každém tlačítku je za popiskem ještě konkrétní cena, se kterou příkaz
-půjde do trhu - například `BID (3 ks) · 3.00`.
+Řádek se nezobrazí, pokud by dělal totéž co jiný: u pozice o jednom kontraktu
+zbude jen ten první a prodej po kusech se nenabízí ani tehdy, když základní
+pozice vychází právě na jeden kus.
 
 **Přirážky nad poptávkou** (`ASK +1 %` až `+5 %`, dál `+7 %` a `+9 %`) zadají
 prodej nad ASK: za kontrakt přijde víc peněz, ale příkaz se vyplní s menší
@@ -158,9 +163,8 @@ sloupci přizpůsobí sám, žádné další místo se kvůli tomu nepřepisuje.
 
 Základní pozice je držené množství snížené o runner (`trading.runner_quantity`,
 ve výchozím nastavení 1 kontrakt). Po jejím prodeji zbývá v pozici jen runner
-a nabízejí se už jen tlačítka **Prodat vše** - přesně tak, jak má scale-out
-fungovat. Kupovali-li jste kontraktů právě tolik, kolik činí runner (typicky
-jeden), tlačítka pro prodej základní pozice se vůbec nezobrazí.
+a zůstane jediný řádek, kterým se doprodá - přesně tak, jak má scale-out
+fungovat.
 
 ### Úklid přehledu
 
@@ -176,12 +180,14 @@ Limitní příkaz se nemusí vyplnit - trh se mezitím pohne jinam. **Opakovaný
 stisk téhož tlačítka proto nezakládá druhý příkaz, ale přecení ten stávající**
 na aktuální cenu (v TWS jde o modifikaci příkazu se stejným `orderId`).
 
-- U pozice s nevyplněným **nákupem** se tlačítka přepnou na
-  *Přecenit nákup na ASK / MID*. Totéž udělá i nákupní tlačítko ve formuláři,
-  pokud na daném tickeru a směru nevyplněný nákup čeká.
-- U pozice s nevyplněným **prodejem** se prodejní tlačítka přepnou na
-  *Přecenit prodej na BID / MID*. Přecenit lze i mezi rozsahy - z prodeje
-  základní pozice na prodej všeho a zpět; příkaz se jen upraví.
+- U pozice s nevyplněným **nákupem** k tomu slouží nákupní tlačítka na její
+  kartě. Totéž udělá i tlačítko ve formuláři, pokud na daném tickeru a směru
+  nevyplněný nákup čeká.
+- U pozice s nevyplněným **prodejem** přecení příkaz kterékoliv prodejní
+  tlačítko. Přejít lze i mezi řádky - z prodeje základní pozice na prodej
+  všeho a zpět; příkaz se jen upraví, druhý nevzniká.
+- Tlačítka přitom vypadají stejně jako při novém příkazu. Že jde o přecenění,
+  řekne bublina s nápovědou a hláška pozice, která vypisuje, co v trhu leží.
 - Přecenění mění i **množství**: přepsáním pole ve formuláři a novým stiskem
   se upraví počet kontraktů nákupního příkazu.
 - **Částečně vyplněný příkaz se přecenit dá** - upraví se limit zbývajícího
@@ -206,6 +212,33 @@ nechtěný druhý nákup nebo prodej:
   přecenění nebrání - viz výše),
 - dokud se příkaz odesílá, další stisk se zahodí, takže z dvojkliku
   nevzniknou dva příkazy.
+
+---
+
+## Přehled výsledků
+
+Tlačítko **Výsledky** v hlavičce přehledu pozic otevře souhrn obchodního dne
+přes celou obrazovku. Ukazuje na jednom místě, co se dnes obchodovalo, co se
+ještě drží a s jakým výsledkem:
+
+- **šest dlaždic** nahoře - výsledek dne, realizovaná část, otevřené pozice,
+  úspěšnost, profit factor a počty pozic,
+- **seznam držených pozic** s živým P/L, který tiká spolu se zbytkem aplikace,
+- **seznam ukončených pozic** s nákupní a průměrnou prodejní cenou, dobou
+  držení a pruhem, který obchody porovnává mezi sebou,
+- **křivku průběhu dne** - kumulovaný realizovaný výsledek po provizích,
+- **sloupcový graf podle tickeru**.
+
+Přepínač **Dnes / Vše** rozhoduje o rozsahu: *Dnes* bere pozice založené
+dnešního dne a všechny dosud běžící (aplikace může běžet přes noc), *Vše*
+celý obsah přehledu bez ohledu na datum.
+
+Hlavní hodnota je vždy ta **po provizích** - v závorce vedle ní stojí drobněji
+tatáž částka bez nich. Provize se přitom dělí mezi prodanou a drženou část
+pozice: držené kusy nesou jen poměrnou část nákupní provize, protože prodejní
+u nich ještě nevznikla. O tom, jestli obchod skončil v zisku, proto rozhoduje
+výsledek po provizích - těsný zisk umí provize otočit ve ztrátu a statistika
+by jinak lhala.
 
 ---
 
@@ -302,6 +335,8 @@ pruhu nahoře. Aplikace k nim sama nic nezadává - patří do TWS.
 | `tws_rucne/ib_service.py` | obálka nad `ib_async` - spojení, kontrakty, data, příkazy |
 | `tws_rucne/engine.py` | obchodní logika a monitorovací smyčka |
 | `tws_rucne/store.py` | ukládání a načítání stavu |
+| `tws_rucne/report.py` | výpočet souhrnu obchodního dne (bez vykreslování) |
+| `tws_rucne/report_dialog.py` | popup s přehledem výsledků - dlaždice, seznamy, grafy |
 | `tws_rucne/ui.py` | webové rozhraní (NiceGUI) |
 | `tws_rucne/static/styles.css` | styly |
 | `tests/` | testy |
