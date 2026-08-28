@@ -20,6 +20,7 @@ vzniká výhradně stiskem tlačítka.
   - [Zadání a náhled kontraktu](#zadání-a-náhled-kontraktu)
   - [Nákup](#nákup)
   - [Prodej a runner](#prodej-a-runner)
+  - [Úklid přehledu](#úklid-přehledu)
   - [Přecenění příkazu, kterému utekl trh](#přecenění-příkazu-kterému-utekl-trh)
   - [Ochrana proti druhému příkazu](#ochrana-proti-druhému-příkazu)
 - [Přehled výsledků](#přehled-výsledků)
@@ -89,12 +90,16 @@ V TWS: **File → Global Configuration → API → Settings**
 
 - zaškrtnout *Enable ActiveX and Socket Clients*,
 - ověřit **Socket port** (7497 papírový účet, 7496 ostrý; IB Gateway 4002 / 4001)
-  a zapsat jej do `connection.port`,
+  a zapsat jej do `connection.port` - šablona `config.example.yaml` má
+  předvyplněno 7496,
 - `connection.client_id` musí být jiné než u ostatních aplikací připojených
-  ke stejné TWS.
+  ke stejné TWS,
+- `connection.readonly: true` aplikaci zakáže zadávat příkazy (jen sledování).
 
-Bez odběru tržních dat pro opce zůstane kotace prázdná a tlačítka pro nákup
-se nepovolí - limitní cenu totiž není z čeho spočítat.
+Bez odběru tržních dat pro opce zůstane kotace prázdná a nákup skončí
+chybovou hláškou - limitní cenu totiž není z čeho spočítat. Tlačítka ve
+formuláři přitom zůstávají aktivní (nákup si kontrakt připraví sám), na
+kartě pozice se bez kotace nepovolí.
 
 ---
 
@@ -102,8 +107,10 @@ se nepovolí - limitní cenu totiž není z čeho spočítat.
 
 ### Hlavička
 
-Vlevo stojí název aplikace, vpravo přepínač světlého a tmavého vzhledu,
-stav spojení s TWS, ukazatel kvality spojení a tlačítko připojení.
+Vlevo stojí název aplikace, vpravo odpočet do otevření burzy (jen mimo
+seanci), přepínač světlého a tmavého vzhledu, stav spojení s TWS včetně
+účtu, ukazatel kvality spojení a tlačítko připojení. Volba vzhledu se
+pamatuje mezi spuštěními a má přednost před `ui.dark` z konfigurace.
 
 Ukazatel `TWS 2,1 ms · data 0,1 s` říká, že spojení nejen stojí, ale i žije:
 
@@ -131,8 +138,10 @@ aplikace nezná. Během seance je odpočet skrytý a obchodování neovlivňuje.
 
 ### Zadání a náhled kontraktu
 
-Kontrakt se hledá po opuštění pole s tickerem nebo po stisku Enter, aby
-se do TWS neposílal dotaz po každém napsaném znaku. Náhled ukazuje:
+Kontrakt se hledá po opuštění pole s tickerem, po stisku Enter a po
+přepnutí CALL / PUT, aby se do TWS neposílal dotaz po každém napsaném
+znaku; změna množství jen přepočítá odhad nákladů a popisky tlačítek.
+Během dotazu do TWS svítí hláška `Načítám data z TWS…`. Náhled ukazuje:
 
 - vybraný kontrakt a počet dní do expirace,
 - cenu podkladu a deltu opce,
@@ -142,6 +151,10 @@ se do TWS neposílal dotaz po každém napsaném znaku. Náhled ukazuje:
 Upozornění se vypisují pod náhledem - například když je spread nad limitem
 z konfigurace, nebo když vybraný strike není pro danou expiraci
 obchodovatelný a použil se nejbližší dostupný.
+
+Pod formulářem stojí karta **Nastavení** s podstatnými hodnotami
+z konfigurace (expirace, strike, runner, limit spreadu, tolerance a platnost
+příkazů), aby bylo na první pohled vidět, podle čeho se kontrakt vybírá.
 
 ### Nákup
 
@@ -159,10 +172,13 @@ Po vyplnění nákupu nabídne karta pozice tři řádky tlačítek, které se l
 jen množstvím - u pozice se třemi kontrakty a runnerem 1 ks vypadají takto:
 
 ```
-BID (3 ks)  MID (3 ks)  ASK (3 ks)  ASK +1 %  +2 %  +3 %  +4 %  +5 %  +7 %  +9 %
-BID (2 ks)  MID (2 ks)  ASK (2 ks)  ASK +1 %  +2 %  +3 %  +4 %  +5 %  +7 %  +9 %
-BID (1 ks)  MID (1 ks)  ASK (1 ks)  ASK +1 %  +2 %  +3 %  +4 %  +5 %  +7 %  +9 %
+BID (3 ks)  MID (3 ks)  ASK (3 ks)  ASK +1 %  ASK +2 %  ASK +3 %  ASK +4 %  ASK +5 %  ASK +7 %  ASK +9 %
+BID (2 ks)  MID (2 ks)  ASK (2 ks)  ASK +1 %  ASK +2 %  ASK +3 %  ASK +4 %  ASK +5 %  ASK +7 %  ASK +9 %
+BID (1 ks)  MID (1 ks)  ASK (1 ks)  ASK +1 %  ASK +2 %  ASK +3 %  ASK +4 %  ASK +5 %  ASK +7 %  ASK +9 %
 ```
+
+U přirážek se počet kusů na tlačítku nepíše - je zřejmý z tlačítek vedle
+a popisek by byl zbytečně dlouhý.
 
 Nabídka jde zleva doprava od nejjistějšího vyplnění k nejvyšší ceně: na BID
 se prodá hned a zaplatí se celý spread, na MID se čeká na střed trhu, na ASK
@@ -201,8 +217,8 @@ fungovat.
 Ukončené pozice - uzavřené, zrušené i chybové - zůstávají v přehledu, dokud
 je obchodník neodstraní. Slouží k tomu buď tlačítko **Odstranit z přehledu**
 u jednotlivé pozice, nebo **Odstranit ukončené** v hlavičce přehledu, které
-vyklidí všechny naráz. Otevřených pozic se úklid nedotkne a do TWS neposílá
-nic; jde čistě o obrazovku.
+vyklidí všechny naráz (ukazuje se, jen když je co uklidit). Otevřených pozic
+se úklid nedotkne a do TWS neposílá nic; jde čistě o obrazovku.
 
 ### Přecenění příkazu, kterému utekl trh
 
@@ -226,8 +242,12 @@ na aktuální cenu (v TWS jde o modifikaci příkazu se stejným `orderId`).
   na to upozorní místo toho, aby poslala do TWS nesmyslnou úpravu.
 - Nezměnila-li se cena ani počet kusů, do TWS se nic neposílá - zbytečná
   modifikace by příkaz jen vrátila na konec fronty.
+- Přecenit lze jen příkaz, který v TWS čeká (stav `PreSubmitted` nebo
+  `Submitted`). Příkaz, který se právě vyplňuje nebo ruší, aplikace
+  odmítne upravit a nic do trhu neposílá.
 
-Tlačítkem **Zrušit příkaz v trhu** lze příkaz kdykoliv stáhnout.
+Tlačítkem **Zrušit příkaz v trhu** lze příkaz kdykoliv stáhnout; skutečné
+zrušení potvrdí až TWS a teprve pak se změní stav pozice.
 
 ### Ochrana proti druhému příkazu
 
@@ -296,8 +316,8 @@ by jinak lhala.
 
 Opční řetězec vrací strike ceny pro všechny expirace dohromady, takže vybraný
 strike nemusí být pro zvolenou expiraci obchodovatelný. Aplikace proto zkouší
-kandidáty podle vzdálenosti od cíle, dokud se některý v TWS neověří, a náhradu
-ohlásí v náhledu.
+kandidáty podle vzdálenosti od cíle (nejvýš osm), dokud se některý v TWS
+neověří, a náhradu ohlásí v náhledu.
 
 ---
 
@@ -313,7 +333,10 @@ P/L: 41.01 USD              nic prodáno není, jde o celý výsledek
 ```
 
 Barvu určuje první číslo, protože podle něj se rozhoduje, zda runner ještě
-držet. Do výpočtu vstupují:
+držet. Výsledek zbytku je čisté ocenění držených kusů středem trhu - provize
+se odečítají až v celku v závorce. (Přehled výsledků naproti tomu držené
+části připisuje poměrnou část nákupní provize, viz výše.) Do výpočtu
+vstupují:
 
 - prodané kontrakty se počítají skutečnými prodejními cenami (i z několika
   prodejů za různé ceny),
@@ -332,15 +355,20 @@ se mění:
 | Volba | Význam |
 | --- | --- |
 | `connection.port`, `connection.client_id` | připojení k TWS |
+| `connection.readonly` | `true` = aplikace nesmí zadávat příkazy, jen sleduje |
 | `trading.runner_quantity` | kolik kontraktů zůstane jako runner |
 | `trading.default_quantity`, `trading.default_right` | co je předvyplněné ve formuláři |
 | `trading.ask_tolerance_pct`, `trading.bid_tolerance_pct` | o kolik procent smí limit přesáhnout ASK, resp. podlézt BID (0 = přesně na kotaci) |
 | `trading.max_spread_pct` | nad kolik procent spreadu rozhraní upozorní (nákup nezakazuje) |
 | `trading.tif` | `DAY` = do konce obchodního dne, `GTC` = do zrušení |
+| `trading.outside_rth` | `true` = příkazy smí být vyplněny i mimo hlavní obchodní hodiny |
 | `trading.exchange_timezone`, `exchange_open_time`, `exchange_close_time` | hodiny burzy pro odpočet v hlavičce (obchodování neovlivňují) |
 | `strike.mode`, `strike.otm_steps` | jak se vybírá strike |
 | `expiration.mode`, `expiration.min_dte` | jak se vybírá expirace |
+| `engine.market_data_timeout_sec`, `engine.quotes_grace_sec` | jak dlouho se při přípravě zadání čeká na ceny z TWS |
+| `state.enabled`, `state.file` | ukládání stavu pozic (`false` = po restartu aplikace o pozicích neví) |
 | `ui.port`, `ui.dark` | webové rozhraní |
+| `ui.refresh_interval_sec` | jak často se překresluje stránka (kotace, P/L, odpočet) |
 | `ui.latency_interval_sec` | jak často se měří odezva TWS pro ukazatel v hlavičce (0 = vypnuto) |
 
 ---
@@ -351,10 +379,19 @@ Stav pozic se ukládá do `state.json` po každé změně. Po startu aplikace
 (a po každém obnovení spojení) se uložené pozice **ověří proti TWS**:
 
 - kontrakty se znovu ověří a naváže se odběr tržních dat,
-- příkazy se dohledají podle značky `TWSRUCNE:<pozice>:<druh>` v poli `orderRef`,
+- příkazy se dohledají podle značky `TWSRUCNE:<pozice>:<druh>` v poli `orderRef`
+  (`buy`, `sell1`, `sell2`, ...),
 - držené množství se přebírá z TWS - je závazné. Rozdíl proti uloženému stavu
   se srovná a **nahlásí** v hlášce pozice i v průběhu; chybějící prodejní cena
-  se odhadne z posledního limitu, což je vždy vidět v logu.
+  se odhadne z posledního limitu (případně ze středu trhu nebo nákupní ceny),
+  což je vždy vidět v logu.
+
+Srovnání běží po kontraktech, protože na jednom opčním kontraktu může běžet
+více pozic (třeba po dokoupení) a TWS hlásí jediný součet. Dokud součet sedí,
+nemění se nic; rozdíl se připíše, resp. odepíše nejnovější pozici. Pozice
+s nevyplněným nákupním příkazem se neupravují - jejich množství řídí příkaz
+v TWS - a co se přiřadit nepodaří, se hlásí v průběhu s předponou `POZOR`.
+Ukončené pozice se jen vrátí do přehledu, nic se u nich neověřuje.
 
 Opční pozice na účtu, ke kterým aplikace nemá záznam, se vypíšou v červeném
 pruhu nahoře. Aplikace k nim sama nic nezadává - patří do TWS.
@@ -366,6 +403,9 @@ pruhu nahoře. Aplikace k nim sama nic nezadává - patří do TWS.
 | Soubor | Obsah |
 | --- | --- |
 | `main.py` | vstupní bod, parametry příkazové řádky, start serveru |
+| `run.sh`, `run.bat` | spuštění včetně založení `.venv` a instalace závislostí |
+| `config.example.yaml` | komentovaná šablona konfigurace; kopíruje se do `config.yaml` |
+| `state.json` | uložený stav pozic (vzniká za běhu, není v gitu) |
 | `tws_rucne/config.py` | načtení a validace konfigurace |
 | `tws_rucne/calc.py` | výpočty bez závislosti na TWS (strike, expirace, limitní ceny, P/L) |
 | `tws_rucne/models.py` | model pozice, stavy a dostupnost tlačítek |
@@ -376,7 +416,7 @@ pruhu nahoře. Aplikace k nim sama nic nezadává - patří do TWS.
 | `tws_rucne/report_dialog.py` | popup s přehledem výsledků - dlaždice, seznamy, grafy |
 | `tws_rucne/ui.py` | webové rozhraní (NiceGUI) |
 | `tws_rucne/static/styles.css` | styly |
-| `tests/` | testy |
+| `tests/` | testy; `fake_ib.py` je náhrada TWS, `zaklad.py` společná příprava enginu |
 
 ---
 
