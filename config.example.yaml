@@ -16,7 +16,7 @@ connection:
   # Prázdné = použije se první účet nalezený na spojení
   account: ""
   # 1 = live, 2 = frozen, 3 = delayed, 4 = delayed frozen
-  market_data_type: 1
+  market_data_type: 2
   connect_timeout: 8.0
   # Automatické obnovování spojení v monitorovací smyčce
   auto_reconnect: true
