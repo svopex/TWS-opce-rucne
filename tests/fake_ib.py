@@ -149,6 +149,10 @@ class FakeIBService(IBService):
         """Ceny jsou k dispozici okamžitě."""
         return None
 
+    def is_subscribed(self, contract: Contract | None) -> bool:
+        """Odběr se v testech eviduje ve vlastním počítadle."""
+        return contract is not None and contract.conId in self.subscribed
+
     def ticker(self, contract: Contract | None) -> Ticker | None:
         """
         Sestaví tržní data kontraktu z hodnot nastavených testem.
@@ -220,7 +224,11 @@ class FakeIBService(IBService):
         return list(self.fills)
 
     async def positions(self) -> dict[int, PositionInfo]:
-        """Držené opční pozice nastavené testem."""
+        """Držené opční pozice nastavené testem - bez dotazu do TWS."""
+        return self.known_positions()
+
+    def known_positions(self) -> dict[int, PositionInfo]:
+        """Tytéž pozice čtené z paměti; ostrá služba je bere z ib_async."""
         return {
             conid: PositionInfo(
                 conid=conid,

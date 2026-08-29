@@ -62,6 +62,12 @@ class TestDostupnostTlacitek(unittest.TestCase):
         self.assertFalse(p.can_sell_base)
         self.assertEqual(p.sell_quantity_for(SELL_SCOPE_BASE), 0)
 
+    def test_cerstvy_nakup_o_velikosti_runneru_jeste_runnerem_neni(self):
+        # Runnerem je až zbytek po odprodeji základní části, ne nedotčený nákup
+        p = pozice(quantity=1, filled=1)
+        self.assertEqual(p.open_quantity, 1)
+        self.assertFalse(p.is_runner_only)
+
     def test_po_prodeji_zakladni_pozice_zbyva_jen_prodej_vseho(self):
         # Ze tří kusů se prodaly dva, v pozici zůstal runner
         p = pozice(sold=2)
@@ -205,6 +211,11 @@ class TestPopiskyTlacitek(unittest.TestCase):
         self.assertEqual(price_kind_label("ask", 2.0), "ASK +2 %")
         # Desetinná přirážka se nepíše se zbytečnou nulou
         self.assertEqual(price_kind_label("ask", 2.5), "ASK +2.5 %")
+
+    def test_neznamy_druh_ceny_hlasi_srozumitelnou_chybu(self):
+        # Stejně jako výpočty limitních cen, ne holým KeyError
+        with self.assertRaises(ValueError):
+            price_kind_label("lmt")
 
 
 if __name__ == "__main__":

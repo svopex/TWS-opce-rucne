@@ -105,9 +105,10 @@ def sell_limit_price(
     kind = 'mid' na středu trhu, kind = 'ask' na poptávané ceně.
     Bez potřebné kotace vrací None.
 
-    markup_pct zvedne výslednou cenu o zadaná procenta - tlačítka ASK +1 %
-    až +5 % tak nabízejí prodej nad poptávkou: za kontrakt přijde víc peněz,
-    ale příkaz se vyplní s menší pravděpodobností.
+    markup_pct zvedne výslednou cenu o zadaná procenta - tlačítka s přirážkou
+    nad poptávkou (nabídku určuje ASK_MARKUPS v models.py) tak prodávají nad
+    ASK: za kontrakt přijde víc peněz, ale příkaz se vyplní s menší
+    pravděpodobností.
     """
     if kind == "bid":
         if not is_price(bid):

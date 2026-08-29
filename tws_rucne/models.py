@@ -142,6 +142,9 @@ class Position:
     sell_trade: Any = None
     # Pozice drží vlastní odběr tržních dat, dokud není ukončená
     subscribed: bool = False
+    # Od kdy se u dokončeného prodeje čeká na skutečnou cenu z TWS
+    # (monotónní čas); None znamená, že se zatím nečeká
+    settle_wait_since: float | None = None
     underlying_price: float | None = None
     option_bid: float | None = None
     option_ask: float | None = None
@@ -181,8 +184,13 @@ class Position:
 
     @property
     def is_runner_only(self) -> bool:
-        """Pozice je po odprodeji základní části - drží se už jen runner."""
-        return self.filled_quantity > 0 and 0 < self.open_quantity <= self.runner_quantity
+        """
+        Pozice je po odprodeji základní části - drží se už jen runner.
+
+        Podmínka na prodané kusy je zásadní: bez ní by se za runner označil
+        i čerstvě nakoupený jediný kontrakt, ze kterého se ještě nic neprodalo.
+        """
+        return self.sold_quantity > 0 and 0 < self.open_quantity <= self.runner_quantity
 
     def sell_quantity_for(self, scope: str) -> int:
         """Kolik kontraktů se prodá pro daný rozsah ('all', 'base' nebo 'one')."""
@@ -467,10 +475,13 @@ def ukoncene_pozice_text(pocet: int) -> str:
 
 def price_kind_label(kind: str, markup_pct: float = 0.0) -> str:
     """
-    Popis ceny příkazu: 'ASK', 'BID', 'MID', nebo s přirážkou 'MID +1 %'.
+    Popis ceny příkazu: 'ASK', 'BID', 'MID', nebo s přirážkou 'ASK +1 %'.
     Přirážka se píše jen tehdy, když je nenulová.
     """
-    nazev = {"ask": "ASK", "bid": "BID", "mid": "MID"}[kind]
+    nazev = {"ask": "ASK", "bid": "BID", "mid": "MID"}.get(kind)
+    # Srozumitelná chyba místo holého KeyError - stejně jako v calc.*_limit_price
+    if nazev is None:
+        raise ValueError(f"Neznámý druh ceny: {kind}")
     if not markup_pct:
         return nazev
     return f"{nazev} +{markup_pct:g} %"

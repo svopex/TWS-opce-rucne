@@ -15,7 +15,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from . import calc, store
@@ -47,6 +47,10 @@ MODIFIABLE_ORDER_STATES = ("PreSubmitted", "Submitted")
 # Kolik strike cen se nejvýš zkusí ověřit, než příprava vzdá hledání kontraktu
 MAX_STRIKE_ATTEMPTS = 8
 
+# Jak dlouho se u dokončeného prodeje čeká na skutečnou průměrnou cenu z TWS,
+# než se pozice uzavře s odhadem podle limitní ceny
+FILL_PRICE_WAIT_SEC = 3.0
+
 
 @dataclass
 class Preview:
@@ -56,7 +60,6 @@ class Preview:
     """
 
     symbol: str
-    quantity: int
     right: str
     underlying: Any = None
     option: Any = None
@@ -123,8 +126,9 @@ class ManualEngine:
         self._last_reconnect = 0.0
         # Automatické připojování lze vypnout přepínačem --no-connect
         self.auto_connect = True
-        # Rozhraní se registruje, aby se překreslilo po změně stavu
-        self.on_change: Callable[[], None] | None = None
+        # Čas posledního neúspěšného srovnání s TWS - další pokus se odkládá,
+        # aby se selhávající obnova nedotazovala TWS při každém průchodu smyčkou
+        self._last_restore_error = 0.0
 
     # ------------------------------------------------------------------
     # Události a stav
@@ -144,15 +148,6 @@ class ManualEngine:
         if not self.cfg.state.enabled:
             return
         store.save(list(self.positions.values()), self.cfg.state.file)
-
-    def _notify(self) -> None:
-        """Uloží stav a upozorní rozhraní na změnu."""
-        self._persist()
-        if self.on_change:
-            try:
-                self.on_change()
-            except Exception:
-                log.exception("Chyba při notifikaci rozhraní.")
 
     @property
     def is_monitoring(self) -> bool:
@@ -228,7 +223,7 @@ class ManualEngine:
     # Příprava zadání
     # ------------------------------------------------------------------
 
-    async def prepare(self, symbol: str, quantity: int, right: str) -> Preview:
+    async def prepare(self, symbol: str, right: str) -> Preview:
         """
         Připraví zadání: načte cenu podkladu, vybere expiraci a strike podle
         aktuální ceny a ověří opční kontrakt v TWS. Nic nezadává do trhu.
@@ -245,7 +240,7 @@ class ManualEngine:
         if right not in ("C", "P"):
             raise ValueError("Zvolte typ opce CALL nebo PUT.")
 
-        preview = Preview(symbol=symbol, quantity=max(1, int(quantity)), right=right)
+        preview = Preview(symbol=symbol, right=right)
         # Odběry zakládá příprava sama; nedoběhne-li (chyba nebo novější zadání),
         # musí je zase uvolnit, jinak by kontrakty zůstaly odebírané až do restartu
         try:
@@ -427,7 +422,8 @@ class ManualEngine:
     ) -> float | None:
         """
         Limitní cena prodeje pro dané tlačítko podle aktuálních kotací pozice.
-        markup_pct je přirážka nad zvolenou cenou (tlačítka MID +1 % a dál).
+        markup_pct je přirážka nad zvolenou cenou (tlačítka s přirážkou nad
+        ASK, viz ASK_MARKUPS v models.py).
         """
         cena = calc.sell_limit_price(
             kind,
@@ -502,7 +498,7 @@ class ManualEngine:
             or preview.symbol != symbol
             or preview.right != right
         ):
-            preview = await self.prepare(symbol, quantity, right)
+            preview = await self.prepare(symbol, right)
         if not preview.ready:
             raise ValueError(
                 f"Kontrakt pro {symbol} se nepodařilo připravit - nákup nelze zadat."
@@ -549,7 +545,7 @@ class ManualEngine:
 
         self.positions[position.id] = position
         self.log_event(f"{position.id}: {position.message}")
-        self._notify()
+        self._persist()
         return position
 
     def pending_buy(self, symbol: str, right: str) -> Position | None:
@@ -620,6 +616,9 @@ class ManualEngine:
                 f"{cislo_text(limit)} - cena se od zadání nepohnula."
             )
             self.log_event(f"{position.id}: {position.message}")
+            # Do TWS se nic neposílá, touch() ale přepsal hlášku i updated_at -
+            # bez uložení by se po pádu aplikace obnovil starší stav
+            self._persist()
             return position
 
         order.lmtPrice = limit
@@ -640,7 +639,7 @@ class ManualEngine:
             f"({price_kind_label(kind)})."
         )
         self.log_event(f"{position.id}: {position.message}")
-        self._notify()
+        self._persist()
         return position
 
     @staticmethod
@@ -685,7 +684,7 @@ class ManualEngine:
             except Exception:
                 log.exception("Stav příkazů pozice %s se nepodařilo obnovit.", position.id)
         if zmena:
-            self._notify()
+            self._persist()
         return zmena
 
     # ------------------------------------------------------------------
@@ -771,6 +770,7 @@ class ManualEngine:
         # prodeje zůstávají v sold_quantity a sold_value
         position.sell_settled_quantity = 0
         position.sell_settled_value = 0.0
+        position.settle_wait_since = None
 
         order = self.ib.build_sell_order(
             mnozstvi, limit, order_ref(position.id, f"sell{position.sell_seq}")
@@ -785,7 +785,7 @@ class ManualEngine:
             f"({price_kind_label(kind, markup_pct)}){popis_zbytku}.",
         )
         self.log_event(f"{position.id}: {position.message}")
-        self._notify()
+        self._persist()
         return position
 
     def _reprice_sell(
@@ -821,6 +821,8 @@ class ManualEngine:
                 f"{cislo_text(limit)} - cena se od zadání nepohnula."
             )
             self.log_event(f"{position.id}: {position.message}")
+            # Viz přecenění nákupu - změněná hláška a čas patří na disk
+            self._persist()
             return position
 
         order.lmtPrice = limit
@@ -841,7 +843,7 @@ class ManualEngine:
             f"({price_kind_label(kind, markup_pct)}){prodano}{popis_zbytku}."
         )
         self.log_event(f"{position.id}: {position.message}")
-        self._notify()
+        self._persist()
         return position
 
     async def cancel_order(self, position_id: str) -> Position:
@@ -862,7 +864,7 @@ class ManualEngine:
             raise ValueError(f"Pozice {position_id} nemá v trhu žádný příkaz ke zrušení.")
 
         self.log_event(f"{position.id}: {position.message}")
-        self._notify()
+        self._persist()
         return position
 
     def remove_finished(self) -> int:
@@ -878,7 +880,7 @@ class ManualEngine:
 
         if ukoncene:
             self.log_event(f"Z přehledu {ukoncene_pozice_text(len(ukoncene))}.")
-            self._notify()
+            self._persist()
         return len(ukoncene)
 
     def remove_position(self, position_id: str) -> None:
@@ -889,7 +891,7 @@ class ManualEngine:
         self._release(position)
         del self.positions[position_id]
         self.log_event(f"{position_id}: pozice odstraněna z přehledu.")
-        self._notify()
+        self._persist()
 
     # ------------------------------------------------------------------
     # Odběry tržních dat
@@ -950,17 +952,24 @@ class ManualEngine:
         if not self.ib.connected:
             # Po obnovení spojení se pozice musí znovu spárovat s příkazy v TWS
             self._synced = False
+            # Selhání obnovy patřilo ke ztracenému spojení; na novém se hlásí znovu
+            self._last_restore_error = 0.0
             if self.cfg.connection.auto_reconnect and self.auto_connect:
                 await self._try_reconnect()
             return
 
         # Po (znovu)navázání spojení se stav srovná se skutečností v TWS
         if not self._synced:
-            await self.restore()
+            await self._sync_with_tws()
             return
 
         # Provize dorazí z TWS až po vyplnění příkazu, proto se dobírají průběžně
         zmena = self._sync_commissions()
+
+        # Neřízené pozice se objevují i mizí za běhu - obchodník s nimi hýbe
+        # přímo v TWS a zavřít se může i pozice řízená aplikací. Čte se paměť
+        # spojení, takže to do TWS neposílá žádný dotaz.
+        self._warn_unmanaged(self.ib.known_positions())
 
         for position in list(self.positions.values()):
             if not position.state.is_active:
@@ -973,7 +982,35 @@ class ManualEngine:
                 zmena = True
 
         if zmena:
-            self._notify()
+            self._persist()
+
+    async def _sync_with_tws(self) -> None:
+        """
+        Srovná pozice se skutečností v TWS po (znovu)navázání spojení.
+
+        Neúspěch se nesmí umlčet - dokud srovnání neproběhne, aplikace neví,
+        co účet skutečně drží. Pokus se proto opakuje, ale ne při každém
+        průchodu smyčkou: obnova sahá do TWS a při trvalé chybě by odtud
+        tahala data každou sekundu.
+        """
+        ted = time.monotonic()
+        if (
+            self._last_restore_error
+            and ted - self._last_restore_error < self.cfg.connection.reconnect_delay_sec
+        ):
+            return
+
+        try:
+            await self.restore()
+            self._last_restore_error = 0.0
+        except Exception as exc:
+            log.exception("Stav pozic se nepodařilo srovnat s TWS.")
+            # Do přehledu se hlásí jen první selhání, opakované pokusy by jej zaplavily
+            if not self._last_restore_error:
+                self.log_event(
+                    f"Stav pozic se nepodařilo srovnat s TWS: {exc} - zkouším to dál."
+                )
+            self._last_restore_error = ted
 
     async def _try_reconnect(self) -> None:
         """Pokusí se obnovit spojení, ne však častěji než jednou za nastavený interval."""
@@ -992,8 +1029,12 @@ class ManualEngine:
         Jeden krok stavového automatu pozice.
         Vrací True, pokud došlo ke změně, která se má promítnout do rozhraní.
         """
-        zmena = self._refresh_market_data(position)
+        # Kotace se jen načtou. Do uloženého stavu nepatří a rozhraní se
+        # překresluje vlastním časovačem, takže samy o sobě nejsou změnou,
+        # kvůli které by se měl přepisovat soubor se stavem.
+        self._refresh_market_data(position)
 
+        zmena = False
         if position.state == PositionState.BUYING:
             zmena |= self._handle_buying(position)
         elif position.state == PositionState.SELLING:
@@ -1001,8 +1042,8 @@ class ManualEngine:
 
         return zmena
 
-    def _refresh_market_data(self, position: Position) -> bool:
-        """Načte aktuální cenu podkladu a kotace opce."""
+    def _refresh_market_data(self, position: Position) -> None:
+        """Načte do pozice aktuální cenu podkladu a kotace opce."""
         cena = self.ib.underlying_price(position.underlying_contract)
         bid, ask, delta = self.ib.option_quotes(position.option_contract)
 
@@ -1012,7 +1053,6 @@ class ManualEngine:
         position.option_ask = ask
         if delta is not None:
             position.delta = delta
-        return True
 
     def _handle_buying(self, position: Position) -> bool:
         """Sleduje nákupní příkaz - vyplnění, částečné vyplnění i zrušení."""
@@ -1068,11 +1108,20 @@ class ManualEngine:
 
         status = trade.orderStatus
         vyplneno = int(status.filled)
-        cena = valid_price(status.avgFillPrice) or position.sell_limit
+        # Dokud skutečná průměrná cena nedorazí, počítá se s limitní cenou
+        skutecna = valid_price(status.avgFillPrice)
+        cena = skutecna or position.sell_limit
         zmena = self._settle_sell(position, vyplneno, cena)
 
         hotovo = vyplneno >= position.sell_quantity or status.status == "Filled"
         if not hotovo and status.status not in DEAD_ORDER_STATES:
+            return zmena
+
+        # Cena vyplnění chodí z TWS o kousek později než hlášení o vyplnění.
+        # Uzavřít pozici hned by znamenalo napsat do realizovaného výsledku
+        # odhad podle limitu a už jej nikdy neopravit - ze stavu 'prodává se'
+        # pozice odejde a _handle_selling se na ni znovu nepodívá.
+        if vyplneno >= 1 and skutecna is None and not self._settle_wait_over(position):
             return zmena
 
         # Příkaz doběhl (vyplněn, nebo z trhu stažen) - pozice se vrací
@@ -1101,6 +1150,20 @@ class ManualEngine:
         self.log_event(f"{position.id}: {position.message}")
         return True
 
+    @staticmethod
+    def _settle_wait_over(position: Position) -> bool:
+        """
+        Vypršel odklad, po který se čeká na skutečnou prodejní cenu z TWS?
+
+        Odklad musí být omezený: kdyby cena nikdy nedorazila (zvláštní stav
+        příkazu, výpadek spojení), zůstala by pozice navěky ve stavu
+        'Prodává se' a nešlo by s ní nic dělat.
+        """
+        if position.settle_wait_since is None:
+            position.settle_wait_since = time.monotonic()
+            return False
+        return time.monotonic() - position.settle_wait_since >= FILL_PRICE_WAIT_SEC
+
     def _settle_sell(self, position: Position, vyplneno: int, cena: float | None) -> bool:
         """
         Zúčtuje nově prodané kontrakty běžícího příkazu.
@@ -1108,11 +1171,23 @@ class ManualEngine:
         TWS hlásí průměrnou cenu celého příkazu, proto se z ní počítá celková
         hodnota prodeje a do součtů pozice se přidává jen rozdíl oproti tomu,
         co už zúčtováno bylo. Částečné plnění po částech tak sedí přesně.
+
+        Skutečná průměrná cena dorazí z TWS často až po hlášení o vyplnění;
+        do té doby se počítá s odhadem podle limitní ceny. Zúčtování se proto
+        opakuje i při nezměněném počtu kusů, změnila-li se hodnota - jinak by
+        v realizovaném výsledku natrvalo zůstal odhad místo skutečné ceny.
         """
-        if cena is None or vyplneno <= position.sell_settled_quantity:
+        if cena is None or vyplneno < position.sell_settled_quantity:
             return False
 
         hodnota_celkem = vyplneno * cena
+        # Beze změny počtu i hodnoty není co zúčtovat
+        if (
+            vyplneno == position.sell_settled_quantity
+            and abs(hodnota_celkem - position.sell_settled_value) < 1e-9
+        ):
+            return False
+
         position.sold_quantity += vyplneno - position.sell_settled_quantity
         position.sold_value += hodnota_celkem - position.sell_settled_value
         position.sell_settled_quantity = vyplneno
@@ -1167,7 +1242,6 @@ class ManualEngine:
         """Vlastní obnova; běží pod zámkem, aby se nekřížila se smyčkou."""
         if self._synced:
             return
-        self._synced = True
 
         prikazy = await self.ib.app_trades()
         drzene = await self.ib.positions()
@@ -1203,6 +1277,9 @@ class ManualEngine:
                 self.log_event(f"{position.id}: obnova selhala - {exc}")
             self.positions[position.id] = position
 
+        # Odběry tržních dat zanikly s minulým spojením; náhled o tom neví
+        self._restore_preview()
+
         # Držené množství podle TWS je závazné; srovnává se až teď, kdy jsou
         # obnovené všechny pozice - na jednom kontraktu jich může běžet víc
         self._reconcile_positions(drzene)
@@ -1219,7 +1296,31 @@ class ManualEngine:
         self._ids = itertools.count(nejvyssi + 1)
 
         if self.positions:
-            self._notify()
+            self._persist()
+
+        # Za srovnané se sezení označí až tady. Kdyby se příznak nastavil na
+        # začátku, jediná výjimka v průběhu obnovy by jej nechala natrvalo
+        # zapnutý a držené množství by se s TWS už nikdy neporovnalo.
+        self._synced = True
+
+    def _restore_preview(self) -> None:
+        """
+        Obnoví odběr tržních dat připraveného náhledu.
+
+        Se ztrátou spojení odběry zanikly, náhled se ale dál tváří, že je drží.
+        Bez obnovy by zůstal bez kotací: v přehledu i na tlačítkách by svítily
+        pomlčky a nákup by skončil hláškou o chybějící kotaci, dokud by
+        obchodník ticker ve formuláři nepřepsal.
+
+        Kontrakty, které odběr ještě mají, se přeskakují - druhý odběr by jen
+        zvýšil počítadlo odběratelů a při uvolnění náhledu by se nezrušil.
+        """
+        preview = self._preview
+        if preview is None or not preview.owns_subscription:
+            return
+        for kontrakt in (preview.underlying, preview.option):
+            if kontrakt is not None and not self.ib.is_subscribed(kontrakt):
+                self.ib.subscribe(kontrakt)
 
     async def _restore_position(
         self, position: Position, prikazy: dict, drzene: dict

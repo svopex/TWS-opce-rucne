@@ -226,7 +226,7 @@ class PositionCard:
         Vykreslí řádek prodejních tlačítek pro daný rozsah pozice.
 
         Nabídka jde od nejjistějšího vyplnění k nejvyšší ceně: BID, MID, ASK
-        a nad ním přirážky ASK +1 % až +5 %. Čím výš, tím víc za kontrakt
+        a nad ním přirážky nad poptávkou podle ASK_MARKUPS. Čím výš, tím víc za kontrakt
         přijde, ale tím menší je šance, že se příkaz vyplní. Vrací čtveřice
         (tlačítko, nápověda, druh ceny, přirážka), ze kterých se při každém
         překreslení obnovují popisky i ceny.
@@ -273,16 +273,19 @@ class PositionCard:
         self.podklad.set_text(f"Podklad: {fmt(position.underlying_price)}")
 
         # U pozice se zbytkem po částečném prodeji se ukazuje nejdřív výsledek
-        # drženého zbytku a v závorce celek; barvu určuje to první číslo
+        # drženého zbytku a v závorce celek; barvu určuje to první číslo.
+        # Obě čísla jsou po provizích - stejně jako v přehledu výsledků, kde
+        # se u téže pozice vypisuje open_pnl_net
         self.vysledek.set_text(
-            f"P/L: {pnl_text(position.unrealized_pnl, position.net_pnl, position.pnl_split)}"
+            f"P/L: {pnl_text(position.open_pnl_net, position.net_pnl, position.pnl_split)}"
         )
-        vysledek = position.unrealized_pnl if position.pnl_split else position.net_pnl
+        vysledek = position.open_pnl_net if position.pnl_split else position.net_pnl
         self.vysledek.classes(replace=f"udaj udaj-vysledek {pnl_class(vysledek)}")
         if position.pnl_split:
             self.tip_vysledek.set_text(
-                f"Výsledek drženého zbytku ({position.open_quantity} ks); v závorce "
-                f"celá pozice včetně {position.sold_quantity} už prodaných ks a provizí."
+                f"Výsledek drženého zbytku ({position.open_quantity} ks) po nákupní "
+                f"provizi; v závorce celá pozice včetně {position.sold_quantity} "
+                f"už prodaných ks a všech provizí."
             )
         else:
             self.tip_vysledek.set_text(
@@ -389,6 +392,8 @@ class TradingUI:
         self._akce_bezi: bool = False
         # Karty pozic podle identifikátoru
         self.cards: dict[str, PositionCard] = {}
+        # Pořadí karet, ve kterém byl přehled naposledy vykreslen
+        self.last_order: list[str] = []
         # Čas poslední vypsané události - průběh se překresluje jen při změně
         self.last_log_stamp: datetime | None = None
         # Naposledy zobrazené pozice bez dozoru; None znamená, že pruh ještě
@@ -617,9 +622,7 @@ class TradingUI:
         poradi = self.preview_seq
         self._set_loading(True)
         try:
-            preview = await self.engine.prepare(
-                symbol, self._quantity(), self.right_toggle.value
-            )
+            preview = await self.engine.prepare(symbol, self.right_toggle.value)
         except Exception as exc:
             if poradi == self.preview_seq:
                 self._set_loading(False)
@@ -700,7 +703,8 @@ class TradingUI:
         reprice nese stav, ve kterém bylo tlačítko vykresleno: True znamená,
         že pozice měla prodejní příkaz v trhu a stisk jej má jen přecenit.
         Vyplnil-li se mezitím, engine akci odmítne a nic se neprodá znovu.
-        markup_pct je přirážka nad zvolenou cenou (tlačítka MID +1 % a dál).
+        markup_pct je přirážka nad zvolenou cenou (tlačítka s přirážkou nad
+        ASK, viz ASK_MARKUPS v models.py).
         """
         if not self._zamek():
             return
@@ -947,15 +951,24 @@ class TradingUI:
             if position_id not in aktualni:
                 self.cards.pop(position_id).remove()
 
-        # Karty se zakládají od nejstarší a každá se posouvá na začátek seznamu,
-        # takže výsledné pořadí odpovídá řazení enginu - nejnovější nahoře
-        for position in reversed(list(aktualni.values())):
+        for position in aktualni.values():
             if position.id in self.cards:
                 continue
             with self.positions_container:
-                karta = PositionCard(self, position)
-            karta.karta.move(self.positions_container, target_index=0)
-            self.cards[position.id] = karta
+                self.cards[position.id] = PositionCard(self, position)
+
+        # Pořadí karet musí odpovídat řazení enginu, a to se mění i za běhu -
+        # uzavřená pozice klesá pod běžící. Nová karta se zakládá na konec
+        # seznamu, takže přeskládat je třeba i po jejím vzniku. Přesouvá se
+        # jen při skutečné změně pořadí, jinak by se přehled přestavoval
+        # při každém překreslení.
+        poradi = list(aktualni)
+        if poradi != self.last_order:
+            self.last_order = poradi
+            for index, position_id in enumerate(poradi):
+                self.cards[position_id].karta.move(
+                    self.positions_container, target_index=index
+                )
 
         for position in aktualni.values():
             self.cards[position.id].update(position)

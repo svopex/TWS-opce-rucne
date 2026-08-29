@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from unittest import mock
 from zoneinfo import ZoneInfo
 
-from tests.fake_ib import OPTION_CONID, UNDERLYING_CONID
+from tests.fake_ib import NAN, OPTION_CONID, UNDERLYING_CONID
 from tests.zaklad import ZakladEnginu
 from tws_rucne.models import (
     SELL_SCOPE_ALL,
@@ -20,7 +21,7 @@ class TestPripravaZadani(ZakladEnginu):
 
     async def test_call_dostane_strike_nad_cenou(self):
         self.ib.price_underlying = 231.0
-        nahled = await self.engine.prepare("AAPL", 3, "C")
+        nahled = await self.engine.prepare("AAPL", "C")
         # Rastr je po 2,5 bodu, první strike mimo peníze nad 231 je 232,5
         self.assertEqual(nahled.strike, 232.5)
         self.assertEqual(nahled.right, "C")
@@ -28,32 +29,32 @@ class TestPripravaZadani(ZakladEnginu):
 
     async def test_put_dostane_strike_pod_cenou(self):
         self.ib.price_underlying = 231.0
-        nahled = await self.engine.prepare("AAPL", 3, "P")
+        nahled = await self.engine.prepare("AAPL", "P")
         self.assertEqual(nahled.strike, 230.0)
 
     async def test_rezim_atm_bere_nejblizsi_strike(self):
         self.cfg.strike.mode = "atm"
         self.ib.price_underlying = 231.0
-        nahled = await self.engine.prepare("AAPL", 3, "C")
+        nahled = await self.engine.prepare("AAPL", "C")
         self.assertEqual(nahled.strike, 230.0)
 
     async def test_nedostupny_strike_nahradi_dalsi_v_poradi(self):
         self.ib.price_underlying = 231.0
         self.ib.unavailable_strikes = {232.5}
-        nahled = await self.engine.prepare("AAPL", 3, "C")
+        nahled = await self.engine.prepare("AAPL", "C")
         self.assertEqual(nahled.strike, 230.0)
         # Náhrada se musí obchodníkovi ohlásit
         self.assertTrue(any("není pro expiraci" in v for v in nahled.warnings))
 
     async def test_siroky_spread_je_jen_varovani(self):
         self.cfg.trading.max_spread_pct = 2.0
-        nahled = await self.engine.prepare("AAPL", 3, "C")
+        nahled = await self.engine.prepare("AAPL", "C")
         self.assertTrue(nahled.ready)
         self.assertTrue(any("Spread" in v for v in nahled.warnings))
 
     async def test_novy_nahled_uvolni_odbery_toho_predchoziho(self):
-        await self.engine.prepare("AAPL", 3, "C")
-        await self.engine.prepare("AAPL", 3, "P")
+        await self.engine.prepare("AAPL", "C")
+        await self.engine.prepare("AAPL", "P")
         # Odebírá se právě jeden podklad a jedna opce - ta z posledního náhledu
         self.assertEqual(self.ib.subscribed.get(UNDERLYING_CONID), 1)
         self.assertEqual(self.ib.subscribed.get(OPTION_CONID), 1)
@@ -61,7 +62,7 @@ class TestPripravaZadani(ZakladEnginu):
     async def test_bez_spojeni_priprava_selze(self):
         self.ib.connected_flag = False
         with self.assertRaises(RuntimeError):
-            await self.engine.prepare("AAPL", 3, "C")
+            await self.engine.prepare("AAPL", "C")
 
 
 class TestNakup(ZakladEnginu):
@@ -101,7 +102,7 @@ class TestNakup(ZakladEnginu):
 
     async def test_zmena_smeru_pripravi_kontrakt_znovu(self):
         # Náhled patří CALLu, nákup PUTu si musí vyžádat vlastní kontrakt
-        await self.engine.prepare("AAPL", 3, "C")
+        await self.engine.prepare("AAPL", "C")
         position = await self.nakup(right="P")
         self.assertEqual(position.right, "P")
         self.assertLess(position.strike, self.ib.price_underlying)
@@ -226,6 +227,81 @@ class TestProdej(ZakladEnginu):
         self.ib.price_bid = self.ib.price_ask = None
         with self.assertRaises(ValueError):
             await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL)
+
+
+class TestZuctovaniProdejniCeny(ZakladEnginu):
+    """
+    Skutečnou průměrnou cenu posílá TWS o kousek později než hlášení
+    o vyplnění. Do realizovaného výsledku musí nakonec dorazit ona,
+    ne odhad podle limitní ceny.
+    """
+
+    async def test_pozice_se_neuzavre_dokud_nedorazi_skutecna_cena(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL)
+        prikaz = position.sell_trade
+        # Vyplněno je, průměrná cena zatím ne
+        self.ib.fill(prikaz, 3, NAN)
+        await self.tik()
+        self.assertEqual(position.state, PositionState.SELLING)
+
+        # Jakmile cena dorazí, zúčtuje se s ní a pozice se uzavře
+        prikaz.orderStatus.avgFillPrice = 3.55
+        await self.tik()
+        self.assertEqual(position.state, PositionState.CLOSED)
+        self.assertAlmostEqual(position.sold_value, 3 * 3.55)
+        # Tři kusy za 3,55 proti nákupu za 3,20
+        self.assertAlmostEqual(position.realized_pnl, 105.0)
+
+    async def test_odhad_se_opravi_i_po_castecnem_vyplneni(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL)
+        prikaz = position.sell_trade
+        # Částečné vyplnění bez ceny se zúčtuje odhadem podle limitu
+        self.ib.fill(prikaz, 2, NAN, status="Submitted")
+        await self.tik()
+        self.assertEqual(position.sold_quantity, 2)
+        self.assertAlmostEqual(position.sold_value, 2 * position.sell_limit)
+
+        # Skutečná cena přepíše odhad, i když se počet kusů nezměnil
+        prikaz.orderStatus.avgFillPrice = 3.40
+        await self.tik()
+        self.assertEqual(position.sold_quantity, 2)
+        self.assertAlmostEqual(position.sold_value, 2 * 3.40)
+
+    async def test_bez_ceny_z_tws_se_pozice_po_odkladu_uzavre_odhadem(self):
+        # Kdyby cena nikdy nedorazila, nesmí pozice zůstat navěky v prodeji
+        position = await self.nakup_vyplnen(quantity=3)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL)
+        limit = position.sell_limit
+        self.ib.fill(position.sell_trade, 3, NAN)
+        with mock.patch("tws_rucne.engine.FILL_PRICE_WAIT_SEC", 0.0):
+            await self.tik()
+            await self.tik()
+        self.assertEqual(position.state, PositionState.CLOSED)
+        self.assertAlmostEqual(position.sold_value, 3 * limit)
+
+
+class TestNeridenePozice(ZakladEnginu):
+    """Pruh s neřízenými pozicemi musí sledovat účet i mezi obnovami."""
+
+    async def test_pozice_otevrena_v_tws_se_objevi_uz_pri_tiku(self):
+        self.ib.held_positions = {999999: 5}
+        await self.tik()
+        self.assertIn(999999, self.engine.unmanaged)
+
+    async def test_pozice_prodana_v_tws_z_pruhu_zmizi(self):
+        self.ib.held_positions = {999999: 5}
+        await self.tik()
+        self.ib.held_positions = {}
+        await self.tik()
+        self.assertEqual(self.engine.unmanaged, {})
+
+    async def test_pozice_rizena_aplikaci_se_mezi_neridene_nepocita(self):
+        await self.nakup_vyplnen(quantity=3)
+        self.ib.held_positions = {OPTION_CONID: 3}
+        await self.tik()
+        self.assertEqual(self.engine.unmanaged, {})
 
 
 class TestProvize(ZakladEnginu):

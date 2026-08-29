@@ -114,19 +114,28 @@ def save(positions: list[Position], path: str | Path) -> None:
         "positions": [position_to_dict(p) for p in positions],
     }
 
+    docasny = ""
     try:
         cesta.parent.mkdir(parents=True, exist_ok=True)
         # Dočasný soubor musí ležet ve stejném adresáři, aby šlo přejmenovat atomicky
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", dir=cesta.parent, prefix=cesta.name, suffix=".tmp", delete=False
         ) as fh:
+            # Jméno se zapamatuje hned, aby šel soubor uklidit i při chybě serializace
+            docasny = fh.name
             json.dump(obsah, fh, ensure_ascii=False, indent=2)
             fh.flush()
             os.fsync(fh.fileno())
-            docasny = fh.name
         os.replace(docasny, cesta)
     except Exception:
         log.exception("Stav pozic se nepodařilo uložit do %s.", cesta)
+        # Rozepsaný soubor se sám nesmaže (delete=False) a ukládání běží po
+        # každé změně pozice - bez úklidu by se v adresáři hromadily
+        if docasny:
+            try:
+                os.unlink(docasny)
+            except OSError:
+                log.debug("Dočasný soubor %s se nepodařilo odstranit.", docasny)
 
 
 def load(path: str | Path) -> list[Position]:
@@ -143,6 +152,12 @@ def load(path: str | Path) -> list[Position]:
             obsah = json.load(fh)
     except Exception:
         log.exception("Uložený stav v %s se nepodařilo načíst.", cesta)
+        return []
+
+    # Platný JSON ještě nemusí být slovník - po ručním zásahu může soubor
+    # obsahovat třeba prázdné pole a čtení verze by skončilo AttributeError
+    if not isinstance(obsah, dict):
+        log.warning("Uložený stav v %s není slovník - ignoruji jej.", cesta)
         return []
 
     if obsah.get("version") != FORMAT_VERSION:

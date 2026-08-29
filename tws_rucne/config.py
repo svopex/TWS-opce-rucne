@@ -7,6 +7,7 @@ import shutil
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -217,6 +218,23 @@ def _create_default(cesta: Path) -> None:
         save_config(AppConfig(), cesta)
 
 
+def _cas_burzy(hodnota: str) -> tuple[int, int] | None:
+    """
+    Rozloží čas burzy ve tvaru HH:MM na hodinu a minutu.
+    Vrací None, pokud zápis tomuto tvaru neodpovídá.
+    """
+    casti = str(hodnota).split(":")
+    if len(casti) != 2:
+        return None
+    try:
+        hodina, minuta = int(casti[0]), int(casti[1])
+    except ValueError:
+        return None
+    if not (0 <= hodina <= 23 and 0 <= minuta <= 59):
+        return None
+    return hodina, minuta
+
+
 def validate_config(cfg: AppConfig) -> None:
     """Zkontroluje hodnoty konfigurace a vyhodí ValueError s popisem chyby."""
     problemy: list[str] = []
@@ -251,6 +269,35 @@ def validate_config(cfg: AppConfig) -> None:
         problemy.append("tolerance nad ASK ani pod BID nesmí být záporná")
     if cfg.trading.tif not in ("DAY", "GTC"):
         problemy.append(f"trading.tif musí být DAY nebo GTC, nalezeno '{cfg.trading.tif}'")
+
+    # Hodiny burzy se čtou až v periodické obnově rozhraní. Neověřený překlep
+    # by tam vyhodil výjimku každého půl sekundy a shodil by celé překreslení -
+    # tedy přehled pozic, ceny na tlačítkách i výpis průběhu
+    try:
+        ZoneInfo(cfg.trading.exchange_timezone)
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        problemy.append(
+            f"trading.exchange_timezone není známá časová zóna, "
+            f"nalezeno '{cfg.trading.exchange_timezone}'"
+        )
+
+    otevreni = _cas_burzy(cfg.trading.exchange_open_time)
+    zavreni = _cas_burzy(cfg.trading.exchange_close_time)
+    if otevreni is None:
+        problemy.append(
+            f"trading.exchange_open_time musí být ve tvaru HH:MM, "
+            f"nalezeno '{cfg.trading.exchange_open_time}'"
+        )
+    if zavreni is None:
+        problemy.append(
+            f"trading.exchange_close_time musí být ve tvaru HH:MM, "
+            f"nalezeno '{cfg.trading.exchange_close_time}'"
+        )
+    # Zavření před otevřením by odpočet v hlavičce nikdy nevypnulo
+    if otevreni is not None and zavreni is not None and zavreni <= otevreni:
+        problemy.append(
+            "trading.exchange_close_time musí být později než trading.exchange_open_time"
+        )
 
     if cfg.engine.poll_interval_sec <= 0:
         problemy.append("engine.poll_interval_sec musí být kladné")

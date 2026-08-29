@@ -65,15 +65,25 @@ def main() -> None:
     async def on_startup() -> None:
         """Po startu serveru naváže spojení s TWS a spustí monitoring."""
         if not args.no_connect:
+            # Spojení a obnova pozic mají vlastní hlášku: selhání obnovy nesmí
+            # vypadat jako selhání spojení, když spojení ve skutečnosti stojí
             try:
                 await ib.connect()
-                engine.log_event("Aplikace spuštěna, spojení s TWS navázáno.")
-                # Pozice z předchozího běhu se obnoví a ověří proti TWS
-                await engine.restore()
             except Exception as exc:
                 # Bez spojení aplikace běží dál, uživatel se může připojit z rozhraní
                 log.error("Spojení s TWS se při startu nezdařilo: %s", exc)
                 engine.log_event(f"Spojení s TWS se nezdařilo: {exc}")
+            else:
+                engine.log_event("Aplikace spuštěna, spojení s TWS navázáno.")
+                # Pozice z předchozího běhu se obnoví a ověří proti TWS
+                try:
+                    await engine.restore()
+                except Exception as exc:
+                    log.exception("Obnova pozic po startu se nezdařila.")
+                    engine.log_event(
+                        f"Pozice z minulého běhu se nepodařilo obnovit: {exc} - "
+                        f"zkontrolujte je v TWS."
+                    )
         engine.start()
 
     async def on_shutdown() -> None:

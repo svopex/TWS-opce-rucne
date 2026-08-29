@@ -135,6 +135,8 @@ takže posun letního a zimního času vůči času počítače nehraje roli. Po
 zavření a o víkendu míří odpočet na otevření následujícího obchodního dne -
 u delších pauz proto vypisuje i počet dní. Svátky ani zkrácené obchodní dny
 aplikace nezná. Během seance je odpočet skrytý a obchodování neovlivňuje.
+Všechny tři volby se ověřují při načtení konfigurace, takže překlep v názvu
+zóny nebo v zápisu času aplikace ohlásí hned při startu.
 
 ### Zadání a náhled kontraktu
 
@@ -333,10 +335,9 @@ P/L: 41.01 USD              nic prodáno není, jde o celý výsledek
 ```
 
 Barvu určuje první číslo, protože podle něj se rozhoduje, zda runner ještě
-držet. Výsledek zbytku je čisté ocenění držených kusů středem trhu - provize
-se odečítají až v celku v závorce. (Přehled výsledků naproti tomu držené
-části připisuje poměrnou část nákupní provize, viz výše.) Do výpočtu
-vstupují:
+držet. Obě čísla jsou po provizích: zbytku se připisuje poměrná část nákupní
+provize (prodejní u něj ještě nevznikla), celku všechny provize pozice.
+Stejné číslo za drženou část ukazuje i přehled výsledků. Do výpočtu vstupují:
 
 - prodané kontrakty se počítají skutečnými prodejními cenami (i z několika
   prodejů za různé ceny),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest import mock
 
 from tests.fake_ib import OPTION_CONID
 from tests.zaklad import ZakladSeStavem
@@ -54,6 +55,48 @@ class TestUlozeniStavu(ZakladSeStavem):
         self.assertEqual(len(ulozene), 1)
         self.assertEqual(ulozene[0].id, position.id)
         self.assertEqual(ulozene[0].filled_quantity, 3)
+
+    async def test_tik_bez_zmeny_na_disk_nesaha(self):
+        # Pohyb kotací není změna uloženého stavu - ten se přepisuje jen
+        # při skutečné události, ne při každém průchodu smyčkou
+        await self.nakup_vyplnen(quantity=3)
+        with mock.patch.object(store, "save", wraps=store.save) as zapis:
+            for _ in range(5):
+                self.ib.price_bid = (self.ib.price_bid or 3.0) + 0.05
+                await self.tik()
+        self.assertEqual(zapis.call_count, 0)
+
+    async def test_preceneni_beze_zmeny_ulozi_hlasku(self):
+        # Do TWS se nic neposílá, hláška a čas změny se ale přepsaly
+        position = await self.nakup()
+        await self.engine.reprice_buy(position.id, "ask")
+        self.assertIn("beze změny", position.message)
+        ulozene = store.load(self.cfg.state.file)
+        self.assertEqual(ulozene[0].message, position.message)
+
+
+class TestPoskozenyUlozenyStav(ZakladSeStavem):
+    """Poškozený soubor nesmí shodit start aplikace."""
+
+    def test_json_bez_slovniku_se_ignoruje(self):
+        for obsah in ("[]", "null", '"x"', "12"):
+            Path(self.cfg.state.file).write_text(obsah, encoding="utf-8")
+            with self.assertLogs("tws_rucne.store", "WARNING"):
+                self.assertEqual(store.load(self.cfg.state.file), [])
+
+    def test_nectitelny_soubor_se_ignoruje(self):
+        Path(self.cfg.state.file).write_text("{ tohle není JSON", encoding="utf-8")
+        with self.assertLogs("tws_rucne.store", "ERROR"):
+            self.assertEqual(store.load(self.cfg.state.file), [])
+
+    def test_po_neuspesnem_zapisu_nezustane_docasny_soubor(self):
+        adresar = Path(self.cfg.state.file).parent
+        pozice = Position(id="AAPL-1")
+        # Neserializovatelná hláška shodí json.dump uprostřed zápisu
+        pozice.message = object()
+        with self.assertLogs("tws_rucne.store", "ERROR"):
+            store.save([pozice], self.cfg.state.file)
+        self.assertEqual(list(adresar.iterdir()), [])
 
 
 class TestObnovaPoRestartu(ZakladSeStavem):
@@ -157,6 +200,64 @@ class TestObnovaPoRestartu(ZakladSeStavem):
         self.ib.held_positions = {999999: 5}
         novy = await self._restartuj()
         self.assertIn(999999, novy.unmanaged)
+
+    async def test_selhani_obnovy_nechava_sezeni_nesrovnane(self):
+        # Výjimka během obnovy nesmí sezení natrvalo označit za srovnané,
+        # jinak by se držené množství s TWS už nikdy neporovnalo
+        await self.nakup_vyplnen(quantity=3)
+
+        async def rozbite_app_trades():
+            raise RuntimeError("TWS neodpovídá")
+
+        self.engine._synced = False
+        self.ib.app_trades = rozbite_app_trades
+        with self.assertRaises(RuntimeError):
+            await self.engine.restore()
+        self.assertFalse(self.engine._synced)
+
+        # Jakmile TWS odpovídá, srovnání proběhne při dalším pokusu
+        self.ib.app_trades = type(self.ib).app_trades.__get__(self.ib)
+        await self.engine.restore()
+        self.assertTrue(self.engine._synced)
+
+    async def test_smycka_opakuje_neuspesne_srovnani(self):
+        # Neúspěch se hlásí jednou, pokus se ale opakuje
+        pokusy = {"n": 0}
+
+        async def rozbite_app_trades():
+            pokusy["n"] += 1
+            raise RuntimeError("TWS neodpovídá")
+
+        self.cfg.connection.reconnect_delay_sec = 0.0
+        self.engine._synced = False
+        self.ib.app_trades = rozbite_app_trades
+        with self.assertLogs("tws_rucne.engine", "ERROR"):
+            for _ in range(3):
+                await self.tik()
+
+        self.assertFalse(self.engine._synced)
+        self.assertEqual(pokusy["n"], 3)
+        hlasky = [t for _, t in self.engine.events if "srovnat s TWS" in t]
+        self.assertEqual(len(hlasky), 1)
+
+    async def test_nahled_po_obnove_spojeni_znovu_odebira_data(self):
+        # Bez obnovy odběru by náhled zůstal bez kotací a nákup by nešel zadat
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertTrue(nahled.owns_subscription)
+        odebirano = dict(self.ib.subscribed)
+
+        # Výpadek spojení odběry z minulého spojení zahodí
+        self.ib.subscribed.clear()
+        self.engine._synced = False
+        await self.engine.restore()
+        self.assertEqual(self.ib.subscribed, odebirano)
+
+        # Opakovaná obnova počítadlo odběratelů nenafoukne
+        self.engine._synced = False
+        await self.engine.restore()
+        self.assertEqual(self.ib.subscribed, odebirano)
+        self.engine.release_preview()
+        self.assertEqual(self.ib.subscribed, {})
 
     async def test_dalsi_pozice_navazuje_cislovanim(self):
         await self.nakup_vyplnen(quantity=1)

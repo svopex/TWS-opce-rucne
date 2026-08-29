@@ -11,7 +11,7 @@ import math
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from ib_async import (
     IB,
@@ -97,7 +97,6 @@ class IBService:
         self._quotes_grace_done: set[int] = set()
         self._connect_lock = asyncio.Lock()
         self._chain_cache: dict[str, Any] = {}
-        self.on_status_change: Callable[[], None] | None = None
         # Poslední naměřená odezva TWS v milisekundách; None znamená, že se
         # zatím neměřilo, nebo že poslední pokus neuspěl. Drží se tady, aby
         # ji synchronní obnova hlavičky mohla jen přečíst
@@ -145,7 +144,6 @@ class IBService:
                 self.account = ucty[0] if ucty else ""
 
             log.info("Spojení navázáno, účet: %s", self.account or "(neurčen)")
-            self._notify_status()
 
     async def disconnect(self) -> None:
         """Ukončí spojení a zruší všechny odběry tržních dat."""
@@ -164,7 +162,6 @@ class IBService:
         self._quotes_grace_done.clear()
         # Naměřená odezva patřila ke ztracenému spojení
         self.rtt_ms = None
-        self._notify_status()
 
     def _on_error(self, reqId: int, errorCode: int, errorString: str, contract: Any) -> None:
         """
@@ -177,14 +174,6 @@ class IBService:
             popis = getattr(contract, "localSymbol", "") if contract is not None else ""
             popis = f" [{popis}]" if popis else ""
             log.error("TWS chyba %s (reqId=%s)%s: %s", errorCode, reqId, popis, errorString)
-
-    def _notify_status(self) -> None:
-        """Informuje rozhraní o změně stavu spojení."""
-        if self.on_status_change:
-            try:
-                self.on_status_change()
-            except Exception:
-                log.exception("Chyba při notifikaci změny stavu spojení.")
 
     # ------------------------------------------------------------------
     # Kvalita spojení
@@ -349,6 +338,16 @@ class IBService:
             self.ib.cancelMktData(ticker.contract)
         except Exception:
             log.exception("Nepodařilo se zrušit odběr tržních dat conId=%s.", conid)
+
+    def is_subscribed(self, contract: Contract | None) -> bool:
+        """
+        Odebírá se právě tržní data tohoto kontraktu?
+
+        Po ztrátě spojení se počítadlo odběratelů vyprázdní, takže odpověď
+        rozliší odběr, který ještě žije, od toho, co po výpadku zbylo jen
+        v paměti volajícího.
+        """
+        return contract is not None and contract.conId in self._subscribers
 
     def ticker(self, contract: Contract | None) -> Ticker | None:
         """Vrátí odebíranou strukturu s cenami daného kontraktu."""
@@ -540,12 +539,25 @@ class IBService:
         return nalezene
 
     async def positions(self) -> dict[int, PositionInfo]:
-        """Vrátí držené opční pozice podle conId kontraktu."""
+        """
+        Vyžádá si z TWS aktuální stav účtu a vrátí držené opční pozice.
+        Používá se při obnově, kde na čerstvosti údajů závisí srovnání evidence.
+        """
         try:
             await self.ib.reqPositionsAsync()
         except Exception:
             log.exception("Pozice se nepodařilo z TWS načíst.")
             return {}
+        return self.known_positions()
+
+    def known_positions(self) -> dict[int, PositionInfo]:
+        """
+        Držené opční pozice podle conId, jak je spojení eviduje právě teď.
+
+        Čte jen paměť ib_async, která se po prvním dotazu udržuje hlášeními
+        z TWS - proto ji smí volat i monitorovací smyčka při každém průchodu,
+        aniž by tím do TWS posílala dotaz.
+        """
         return {
             p.contract.conId: PositionInfo(
                 conid=p.contract.conId,
