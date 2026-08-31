@@ -4,11 +4,11 @@
 # --- Spojení na TWS / IB Gateway ---
 connection:
   host: 127.0.0.1
-  #   7496 = TWS (nastaveno na tomto stroji)
-  #   7497 = TWS druhý profil (papírový/ostrý podle instalace)
+  #   7496 = TWS ostry
+  #   7497 = TWS demo
   #   4002 = IB Gateway papírový účet
-  #   4001 = IB Gateway ostrý účet  port: 7496
-  port: 7496
+  #   4001 = IB Gateway ostrý účet
+  port: 7497
   # Číslo klienta musí být v rámci TWS jedinečné - jiné než u ostatních aplikací
   client_id: 21
   # true = aplikace nesmí zadávat příkazy (jen sledování)
