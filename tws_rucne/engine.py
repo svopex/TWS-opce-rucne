@@ -136,6 +136,9 @@ class ManualEngine:
         # dotazu; None znamená, že hodnota zatím nedorazila
         self._live_account_size: float | None = None
         self._account_checked = 0.0
+        # Běžící dotaz na velikost účtu; drží se, aby ho nesebral garbage
+        # collector a aby se nespouštěl druhý, dokud první neskončil
+        self._account_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # Události a stav
@@ -940,14 +943,17 @@ class ManualEngine:
             self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
-        """Zastaví monitorovací smyčku."""
-        if self._task is not None:
-            self._task.cancel()
+        """Zastaví monitorovací smyčku i rozdělaný dotaz na velikost účtu."""
+        for uloha in (self._task, self._account_task):
+            if uloha is None:
+                continue
+            uloha.cancel()
             try:
-                await self._task
+                await uloha
             except asyncio.CancelledError:
                 pass
-            self._task = None
+        self._task = None
+        self._account_task = None
 
     async def _run(self) -> None:
         """Hlavní smyčka - periodicky prochází aktivní pozice a hlídá spojení."""
@@ -975,9 +981,9 @@ class ManualEngine:
                 await self._try_reconnect()
             return
 
-        # Velikost účtu se přebírá z TWS bez ohledu na stav srovnání pozic -
-        # přehled výsledků ji potřebuje i tehdy, když se obnova nedaří
-        await self._refresh_account_size()
+        # Velikost účtu se přebírá bez ohledu na stav srovnání pozic - přehled
+        # výsledků ji potřebuje i tehdy, když se obnova nedaří
+        self._start_account_refresh()
 
         # Po (znovu)navázání spojení se stav srovná se skutečností v TWS
         if not self._synced:
@@ -1005,18 +1011,22 @@ class ManualEngine:
         if zmena:
             self._persist()
 
-    async def _refresh_account_size(self) -> None:
+    def _start_account_refresh(self) -> None:
         """
-        Převezme z TWS skutečnou velikost účtu (NetLiquidation).
+        Je-li na čase, spustí převzetí velikosti účtu vedle smyčky.
 
-        Hodnota se mění s každým obchodem i s pohybem otevřených pozic, proto
-        se načítá opakovaně v tempu engine.account_refresh_sec; nula přebírání
-        vypne. Je to dotaz do TWS, ne čtení z paměti spojení, takže se při
-        každém průchodu smyčkou volat nesmí. Dokud hodnota není známa, zkouší
-        se to častěji - bez ní přehled výsledků procenta z účtu nespočítá.
+        Dotaz do TWS čeká na odpověď až ACCOUNT_TIMEOUT_SEC; kdyby se na něj
+        ve smyčce čekalo, o tu dobu by se zdrželo sledování pozic, na kterém
+        záleží víc. Hodnota se mění s každým obchodem i s pohybem otevřených
+        pozic, proto se obnovuje v tempu engine.account_refresh_sec; nula
+        přebírání vypne. Dokud hodnota není známa, zkouší se to častěji - bez
+        ní přehled výsledků procenta z účtu nespočítá.
         """
         interval = self.cfg.engine.account_refresh_sec
         if interval <= 0:
+            return
+        # Nový dotaz nemá smysl, dokud předchozí čeká na odpověď
+        if self._account_task is not None and not self._account_task.done():
             return
         if self._live_account_size is None:
             interval = min(interval, ACCOUNT_RETRY_SEC)
@@ -1025,8 +1035,23 @@ class ManualEngine:
         if self._account_checked and ted - self._account_checked < interval:
             return
         self._account_checked = ted
+        self._account_task = asyncio.create_task(self._refresh_account_size())
 
-        hodnota = await self.ib.net_liquidation()
+    async def _refresh_account_size(self) -> None:
+        """
+        Převezme z TWS skutečnou velikost účtu (NetLiquidation).
+        O tom, kdy se ptát, rozhoduje _start_account_refresh.
+        """
+        # Běží se mimo smyčku, která chyby loguje za celý průchod - chybu
+        # dotazu proto musí zachytit tahle metoda sama
+        try:
+            hodnota = await self.ib.net_liquidation()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Velikost účtu se nepodařilo z TWS převzít.")
+            return
+
         if hodnota is None:
             return
         # O převzetí se hlásí jen poprvé - další obnovy jsou rutina

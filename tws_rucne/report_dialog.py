@@ -54,19 +54,27 @@ def penize(hodnota: float | None, znamenko: bool = True) -> str:
     return cislo_text(hodnota, znamenko=znamenko)
 
 
-def penize_s_provizi(cisty: float | None, hruby: float | None) -> str:
+def _zavorka_bez_provizi(
+    cisty: float | None, hruby: float | None, zapis: Callable[[float | None], str]
+) -> str:
     """
-    Tatáž částka bez provizí do závorky za hlavní hodnotu - '-92.00 (-85.00)'.
+    Hodnota před provizemi do závorky za hlavní číslo.
 
     Vrací jen text závorky; hlavní hodnotu vypisuje volající zvlášť, aby si ji
-    mohl obarvit podle výsledku. Bez zaplacené provize (obě hodnoty stejné)
-    je závorka prázdná - opakovat totéž číslo dvakrát nemá smysl.
+    mohl obarvit podle výsledku. Bez zaplacené provize (obě hodnoty stejné na
+    zobrazovaná místa) je závorka prázdná - opakovat totéž číslo dvakrát nemá
+    smysl. Zápis čísla dodává volající, pravidlo je pro částky i procenta totéž.
     """
     if cisty is None or hruby is None:
         return ""
     if abs(hruby - cisty) < 0.005:
         return ""
-    return f"({penize(hruby)})"
+    return f"({zapis(hruby)})"
+
+
+def penize_s_provizi(cisty: float | None, hruby: float | None) -> str:
+    """Tatáž částka bez provizí do závorky - '-92.00 (-85.00)'."""
+    return _zavorka_bez_provizi(cisty, hruby, penize)
 
 
 def procenta(hodnota: float | None, desetin: int = 2) -> str:
@@ -81,15 +89,8 @@ def procenta(hodnota: float | None, desetin: int = 2) -> str:
 
 
 def procenta_s_provizi(cisty: float | None, hruby: float | None) -> str:
-    """
-    Podíl z účtu před provizemi do závorky - obdoba penize_s_provizi.
-    Shodují-li se obě hodnoty na zobrazovaná místa, závorka zůstává prázdná.
-    """
-    if cisty is None or hruby is None:
-        return ""
-    if abs(hruby - cisty) < 0.005:
-        return ""
-    return f"({procenta(hruby)})"
+    """Tentýž podíl z účtu bez provizí do závorky - '+0.62 % (+0.68 %)'."""
+    return _zavorka_bez_provizi(cisty, hruby, procenta)
 
 
 def trida_vysledku(hodnota: float | None) -> str:
@@ -156,6 +157,10 @@ def pomer_pruh(podil: float, trida: str) -> None:
 
     Délka pruhu je údaj z dat, proto se do stylů předává proměnnou --pomer
     (0 až 1); barvu, výšku i zaoblení obou konců má na starosti styles.css.
+
+    Pruh nekreslí ui.linear_progress schválně: Quasar roztahuje vnitřní pruh
+    transformací scaleX, která spolu s ním vodorovně smrskne i poloměr rohů -
+    krátký pruh pak vyjde hranatý. Šířka v procentech tímhle netrpí.
     """
     ui.element("div").classes(f"pomer-pruh {trida}").style(f"--pomer: {podil:.4f}")
 
@@ -627,9 +632,9 @@ class ReportDialog:
             # jen svůj obal, takže vnitřní konec pruhu zůstával hranatý
             with ui.element("div").classes("bunka bunka-pomer"):
                 podil = abs(vysledek or 0.0) / meritko if meritko > 0 else 0.0
-                with ui.element("div").classes("pomer-pulka pomer-pulka-ztrata"):
+                with ui.element("div").classes("pomer-pulka"):
                     pomer_pruh(podil if (vysledek or 0) < 0 else 0.0, "pomer-pruh-ztrata")
-                with ui.element("div").classes("pomer-pulka pomer-pulka-zisk"):
+                with ui.element("div").classes("pomer-pulka"):
                     pomer_pruh(podil if (vysledek or 0) > 0 else 0.0, "pomer-pruh-zisk")
 
     def _vykresli_uzavrene(self, podklad: report.DenniReport) -> None:

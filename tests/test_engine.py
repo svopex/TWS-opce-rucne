@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -667,40 +668,87 @@ class TestOdpoctuOtevreniBurzy(ZakladEnginu):
 class TestVelikostiUctu(ZakladEnginu):
     """Velikost účtu se přebírá z TWS a slouží k procentům v přehledu."""
 
+    async def tik_ucet(self) -> None:
+        """
+        Protočí smyčku a počká na doběhnutí dotazu na velikost účtu.
+        Ten běží ve vlastní úloze, aby smyčku nezdržel, takže samotný
+        průchod o jeho výsledku ještě nic neví.
+        """
+        await self.tik()
+        if self.engine._account_task is not None:
+            await self.engine._account_task
+
     async def test_prvni_pruchod_prevezme_hodnotu_z_tws(self):
         self.assertEqual(self.engine.account_size, 0.0)
-        await self.tik()
+        await self.tik_ucet()
         self.assertAlmostEqual(self.engine.account_size, 12345.0)
 
     async def test_prevzeti_se_ohlasi_v_prubehu(self):
-        await self.tik()
+        await self.tik_ucet()
         self.assertTrue(any("Velikost účtu" in text for _, text in self.engine.events))
         # Další průchody už rutinní obnovu nehlásí
         pocet = len(self.engine.events)
         self.engine._account_checked = 0.0
-        await self.tik()
+        await self.tik_ucet()
         self.assertEqual(len(self.engine.events), pocet)
 
     async def test_hodnota_se_obnovuje_az_po_uplynuti_intervalu(self):
-        await self.tik()
+        await self.tik_ucet()
         self.ib.net_liquidation_value = 20000.0
 
         # Hned po převzetí se do TWS znovu nesahá
-        await self.tik()
+        await self.tik_ucet()
         self.assertAlmostEqual(self.engine.account_size, 12345.0)
 
         # Po uplynutí intervalu se hodnota převezme znovu
         self.engine._account_checked = 0.0
-        await self.tik()
+        await self.tik_ucet()
         self.assertAlmostEqual(self.engine.account_size, 20000.0)
 
     async def test_bez_hodnoty_z_tws_zustava_nula(self):
         # TWS souhrn účtu neposlala - procenta se v přehledu nepočítají
         self.ib.net_liquidation_value = None
-        await self.tik()
+        await self.tik_ucet()
         self.assertEqual(self.engine.account_size, 0.0)
 
     async def test_nulovy_interval_prebirani_vypne(self):
         self.cfg.engine.account_refresh_sec = 0.0
-        await self.tik()
+        await self.tik_ucet()
         self.assertEqual(self.engine.account_size, 0.0)
+
+    async def test_dotaz_na_ucet_nezdrzi_smycku(self):
+        # Mlčící TWS nesmí zastavit monitoring pozic - průchod smyčkou proto
+        # na dotaz nečeká a nechá ho běžet vedle
+        zdrzeni = asyncio.Event()
+
+        async def pomala_odpoved() -> float | None:
+            await zdrzeni.wait()
+            return 12345.0
+
+        self.ib.net_liquidation = pomala_odpoved
+        await asyncio.wait_for(self.tik(), 1.0)
+        self.assertEqual(self.engine.account_size, 0.0)
+        self.assertFalse(self.engine._account_task.done())
+
+        # Jakmile TWS odpoví, hodnota dorazí i bez dalšího průchodu smyčkou
+        zdrzeni.set()
+        await self.engine._account_task
+        self.assertAlmostEqual(self.engine.account_size, 12345.0)
+
+    async def test_druhy_dotaz_nevznikne_dokud_prvni_bezi(self):
+        zdrzeni = asyncio.Event()
+
+        async def pomala_odpoved() -> float | None:
+            await zdrzeni.wait()
+            return 12345.0
+
+        self.ib.net_liquidation = pomala_odpoved
+        await self.tik()
+        uloha = self.engine._account_task
+        # Další průchod nesmí založit druhý dotaz na týž údaj
+        self.engine._account_checked = 0.0
+        await self.tik()
+        self.assertIs(self.engine._account_task, uloha)
+
+        zdrzeni.set()
+        await uloha

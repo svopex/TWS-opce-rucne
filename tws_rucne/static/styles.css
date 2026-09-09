@@ -767,13 +767,10 @@
   min-width: 0;
 }
 
-/* Ztráta roste od středu doleva, zisk doprava */
-.pomer-pulka-ztrata {
-  justify-content: flex-end;
-}
-
+/* První polovina patří ztrátě - pruh v ní roste od středu doleva */
 .pomer-pulka:first-child {
   border-right: 1px solid #cbd5e1;
+  justify-content: flex-end;
   padding-right: 3px;
 }
 
@@ -790,11 +787,11 @@
 }
 
 .pomer-pruh-ztrata {
-  background-color: #e53935;
+  background-color: #dc2626;
 }
 
 .pomer-pruh-zisk {
-  background-color: #43a047;
+  background-color: #16a34a;
 }
 
 /* --- Grafy --- */
@@ -902,4 +899,12 @@
 
 .body--dark .pomer-pulka:first-child {
   border-right-color: #475569;
+}
+
+.body--dark .pomer-pruh-ztrata {
+  background-color: #f87171;
+}
+
+.body--dark .pomer-pruh-zisk {
+  background-color: #4ade80;
 }
