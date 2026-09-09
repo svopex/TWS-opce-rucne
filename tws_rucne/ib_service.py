@@ -38,6 +38,10 @@ ORDER_REF_PREFIX = "TWSRUCNE"
 # Jak dlouho se nejvýš čeká na odpověď TWS při měření odezvy
 RTT_TIMEOUT_SEC = 3.0
 
+# Jak dlouho se nejvýš čeká na souhrn účtu. Dotaz visí v monitorovací
+# smyčce, takže bez lhůty by mlčící TWS zastavila sledování pozic.
+ACCOUNT_TIMEOUT_SEC = 5.0
+
 
 def order_ref(position_id: str, druh: str) -> str:
     """Sestaví značku příkazu, například 'TWSRUCNE:AAPL-1:buy'."""
@@ -228,6 +232,42 @@ class IBService:
         ted = datetime.now(nejnovejsi.tzinfo)
         # Hodiny TWS mohou být napřed - záporné stáří by mátlo víc než nula
         return max(0.0, (ted - nejnovejsi).total_seconds())
+
+    # ------------------------------------------------------------------
+    # Účet
+    # ------------------------------------------------------------------
+
+    async def net_liquidation(self) -> float | None:
+        """
+        Aktuální likvidační hodnota účtu (NetLiquidation) z TWS v USD.
+
+        Je to skutečná velikost účtu včetně otevřených pozic - přehled
+        výsledků z ní počítá procenta z účtu. None znamená, že hodnota
+        není k dispozici (bez spojení, nebo ji TWS neposlala).
+        """
+        if not self.connected:
+            return None
+        try:
+            hodnoty = await asyncio.wait_for(
+                self.ib.accountSummaryAsync(self.account), ACCOUNT_TIMEOUT_SEC
+            )
+        except asyncio.TimeoutError:
+            # Mlčící TWS není chyba aplikace - hodnota se zkusí příště znovu
+            log.warning(
+                "TWS neodpověděla na dotaz na souhrn účtu do %s s.", ACCOUNT_TIMEOUT_SEC
+            )
+            return None
+        except Exception:
+            log.exception("Souhrn účtu se nepodařilo z TWS načíst.")
+            return None
+
+        for hodnota in hodnoty:
+            if hodnota.tag == "NetLiquidation":
+                try:
+                    return float(hodnota.value)
+                except (TypeError, ValueError):
+                    return None
+        return None
 
     # ------------------------------------------------------------------
     # Kontrakty

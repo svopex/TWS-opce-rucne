@@ -48,6 +48,8 @@ class FakeIBService(IBService):
         self.price_last: float | None = None
         self.price_close: float | None = None
         self.greek_delta: float | None = 0.35
+        # Velikost účtu vracená místo dotazu do TWS
+        self.net_liquidation_value: float | None = 12345.0
         # Test může spojení shodit a znovu navázat
         self.connected_flag: bool = True
         # Záznam odeslaných a zrušených příkazů
@@ -82,6 +84,10 @@ class FakeIBService(IBService):
     async def disconnect(self) -> None:
         """Odpojení bez sítě."""
         self.connected_flag = False
+
+    async def net_liquidation(self) -> float | None:
+        """Velikost účtu nastavená testem, bez dotazu do TWS."""
+        return self.net_liquidation_value
 
     # --- kontrakty ---
 

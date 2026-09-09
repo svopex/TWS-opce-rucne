@@ -24,6 +24,7 @@ vzniká výhradně stiskem tlačítka.
   - [Přecenění příkazu, kterému utekl trh](#přecenění-příkazu-kterému-utekl-trh)
   - [Ochrana proti druhému příkazu](#ochrana-proti-druhému-příkazu)
 - [Přehled výsledků](#přehled-výsledků)
+  - [Dlaždice Z účtu](#dlaždice-z-účtu)
 - [Výběr expirace a strike](#výběr-expirace-a-strike)
 - [Výsledek pozice](#výsledek-pozice)
 - [Konfigurace](#konfigurace)
@@ -273,8 +274,8 @@ Tlačítko **Výsledky** v hlavičce přehledu pozic otevře souhrn obchodního 
 přes celou obrazovku. Ukazuje na jednom místě, co se dnes obchodovalo, co se
 ještě drží a s jakým výsledkem:
 
-- **šest dlaždic** nahoře - výsledek dne, realizovaná část, otevřené pozice,
-  úspěšnost, profit factor a počty pozic,
+- **sedm dlaždic** nahoře - výsledek dne, tentýž výsledek v procentech účtu,
+  realizovaná část, otevřené pozice, úspěšnost, profit factor a počty pozic,
 - **seznam držených pozic** s živým P/L, který tiká spolu se zbytkem aplikace,
 - **seznam ukončených pozic** s nákupní a průměrnou prodejní cenou, dobou
   držení a pruhem, který obchody porovnává mezi sebou,
@@ -296,6 +297,23 @@ pozice: držené kusy nesou jen poměrnou část nákupní provize, protože pro
 u nich ještě nevznikla. O tom, jestli obchod skončil v zisku, proto rozhoduje
 výsledek po provizích - těsný zisk umí provize otočit ve ztrátu a statistika
 by jinak lhala.
+
+### Dlaždice Z účtu
+
+Dlaždice **Z účtu** ukazuje tentýž výsledek dne jako podíl z účtu v procentech
+(`+0.62 %`), v popisku pak velikost účtu a rozpad na realizovanou a drženou
+část. Znaménko se uvádí vždy a barva se řídí výsledkem stejně jako u částek.
+
+Velikost účtu se **přebírá z TWS** - je to skutečná likvidační hodnota účtu
+(`NetLiquidation`) včetně otevřených pozic, žádná hodnota z konfigurace do
+toho nevstupuje. Načítá se po připojení a dál se obnovuje v intervalu
+`engine.account_refresh_sec` (výchozí 60 s, `0` přebírání vypne); převzetí
+se poprvé ohlásí v panelu průběhu. U živého účtu je v hodnotě dnešní výsledek
+už obsažen - rozdíl proti počítání ze stavu na začátku dne je v řádu desetin
+procenta a jeden základ pro všechna čísla je čitelnější.
+
+Dokud velikost účtu není známa (z TWS zatím nic nedorazilo, nebo je přebírání
+vypnuté), ukazuje dlaždice pomlčku - dělit nulou nelze a odhad by lhal.
 
 ---
 
@@ -367,6 +385,7 @@ se mění:
 | `strike.mode`, `strike.otm_steps` | jak se vybírá strike |
 | `expiration.mode`, `expiration.min_dte` | jak se vybírá expirace |
 | `engine.market_data_timeout_sec`, `engine.quotes_grace_sec` | jak dlouho se při přípravě zadání čeká na ceny z TWS |
+| `engine.account_refresh_sec` | jak často se z TWS přebírá velikost účtu pro procenta v přehledu (0 = vypnuto) |
 | `state.enabled`, `state.file` | ukládání stavu pozic (`false` = po restartu aplikace o pozicích neví) |
 | `ui.port`, `ui.dark` | webové rozhraní |
 | `ui.refresh_interval_sec` | jak často se překresluje stránka (kotace, P/L, odpočet) |

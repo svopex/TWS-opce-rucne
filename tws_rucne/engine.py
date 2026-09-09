@@ -39,6 +39,9 @@ log = logging.getLogger(__name__)
 # Stavy, ve kterých už příkaz v TWS nežije
 DEAD_ORDER_STATES = ("Cancelled", "ApiCancelled", "Inactive")
 
+# Jak často se zkouší převzít velikost účtu, dokud ji TWS ani jednou neposlala
+ACCOUNT_RETRY_SEC = 5.0
+
 # Stavy, ve kterých TWS dovolí příkaz upravit (přecenit). V ostatních
 # stavech se příkaz vyplňuje nebo ruší a modifikace by skončila hlášením
 # "too late to replace".
@@ -129,6 +132,10 @@ class ManualEngine:
         # Čas posledního neúspěšného srovnání s TWS - další pokus se odkládá,
         # aby se selhávající obnova nedotazovala TWS při každém průchodu smyčkou
         self._last_restore_error = 0.0
+        # Velikost účtu převzatá z TWS (NetLiquidation) a čas posledního
+        # dotazu; None znamená, že hodnota zatím nedorazila
+        self._live_account_size: float | None = None
+        self._account_checked = 0.0
 
     # ------------------------------------------------------------------
     # Události a stav
@@ -153,6 +160,16 @@ class ManualEngine:
     def is_monitoring(self) -> bool:
         """Monitorovací smyčka běží."""
         return self._task is not None and not self._task.done()
+
+    @property
+    def account_size(self) -> float:
+        """
+        Skutečná velikost účtu v USD podle TWS (NetLiquidation).
+
+        Slouží k přepočtu výsledku dne na procenta účtu. Nula znamená, že
+        hodnota zatím není známa - konfigurace ji nemá a z TWS nedorazila.
+        """
+        return self._live_account_size or 0.0
 
     def sorted_positions(self) -> list[Position]:
         """
@@ -958,6 +975,10 @@ class ManualEngine:
                 await self._try_reconnect()
             return
 
+        # Velikost účtu se přebírá z TWS bez ohledu na stav srovnání pozic -
+        # přehled výsledků ji potřebuje i tehdy, když se obnova nedaří
+        await self._refresh_account_size()
+
         # Po (znovu)navázání spojení se stav srovná se skutečností v TWS
         if not self._synced:
             await self._sync_with_tws()
@@ -983,6 +1004,35 @@ class ManualEngine:
 
         if zmena:
             self._persist()
+
+    async def _refresh_account_size(self) -> None:
+        """
+        Převezme z TWS skutečnou velikost účtu (NetLiquidation).
+
+        Hodnota se mění s každým obchodem i s pohybem otevřených pozic, proto
+        se načítá opakovaně v tempu engine.account_refresh_sec; nula přebírání
+        vypne. Je to dotaz do TWS, ne čtení z paměti spojení, takže se při
+        každém průchodu smyčkou volat nesmí. Dokud hodnota není známa, zkouší
+        se to častěji - bez ní přehled výsledků procenta z účtu nespočítá.
+        """
+        interval = self.cfg.engine.account_refresh_sec
+        if interval <= 0:
+            return
+        if self._live_account_size is None:
+            interval = min(interval, ACCOUNT_RETRY_SEC)
+
+        ted = time.monotonic()
+        if self._account_checked and ted - self._account_checked < interval:
+            return
+        self._account_checked = ted
+
+        hodnota = await self.ib.net_liquidation()
+        if hodnota is None:
+            return
+        # O převzetí se hlásí jen poprvé - další obnovy jsou rutina
+        if self._live_account_size is None:
+            self.log_event(f"Velikost účtu převzata z TWS: {cislo_text(hodnota)} USD.")
+        self._live_account_size = hodnota
 
     async def _sync_with_tws(self) -> None:
         """

@@ -70,6 +70,9 @@ class Souhrn:
     nejhorsi: tuple[str, float] | None = None
     # Kolik kontraktů se právě drží
     otevrenych_kusu: int = 0
+    # Velikost účtu, ze které se výsledek přepočítává na procenta. Nula
+    # znamená „není známa" - z TWS zatím nedorazila
+    account_size: float = 0.0
 
     @property
     def celkem(self) -> float:
@@ -137,6 +140,20 @@ class Souhrn:
             return None
         return self.hruba_ztrata / self.ztratovych
 
+    def procento_uctu(self, castka: float) -> float | None:
+        """
+        Částka vyjádřená v procentech velikosti účtu - kolik z účtu obchodní
+        den přinesl, nebo ubral.
+
+        Základem je aktuální velikost účtu z TWS, takže dnešní výsledek už
+        v sobě obsahuje; rozdíl proti počítání ze stavu na začátku dne je
+        v řádu desetin procenta a jeden základ pro všechna čísla je čitelnější.
+        Bez známé velikosti účtu vrací None - dělit nulou nelze.
+        """
+        if self.account_size <= 0:
+            return None
+        return castka / self.account_size * 100.0
+
 
 @dataclass
 class DenniReport:
@@ -192,7 +209,9 @@ def _serad_bezici(positions: list[Position]) -> list[Position]:
     return sorted(positions, key=lambda p: (not p.traded, p.symbol, p.id))
 
 
-def _spocti_souhrn(bezici: list[Position], ukoncene: list[Position]) -> Souhrn:
+def _spocti_souhrn(
+    bezici: list[Position], ukoncene: list[Position], account_size: float = 0.0
+) -> Souhrn:
     """
     Sečte výsledky pozic do souhrnných čísel.
 
@@ -204,7 +223,9 @@ def _spocti_souhrn(bezici: list[Position], ukoncene: list[Position]) -> Souhrn:
     Statistiky úspěšnosti počítají jen doobchodované pozice, aby je
     nezkresloval výsledek, který se ještě může otočit.
     """
-    souhrn = Souhrn(bezicich=len(bezici), ukoncenych=len(ukoncene))
+    souhrn = Souhrn(
+        bezicich=len(bezici), ukoncenych=len(ukoncene), account_size=account_size
+    )
 
     for position in bezici + ukoncene:
         realizovano = position.realized_pnl
@@ -301,13 +322,17 @@ def _podle_tickeru(bezici: list[Position], ukoncene: list[Position]) -> list[Tic
 
 
 def sestav(
-    positions: list[Position], rozsah: str = ROZSAH_DNES, den: date | None = None
+    positions: list[Position],
+    rozsah: str = ROZSAH_DNES,
+    den: date | None = None,
+    account_size: float = 0.0,
 ) -> DenniReport:
     """
     Sestaví kompletní přehled výsledků ze seznamu pozic.
 
     Parametr rozsah rozhoduje, co se do přehledu dostane (ROZSAH_DNES /
-    ROZSAH_VSE), den umožňuje testům určit „dnešek" napevno.
+    ROZSAH_VSE), den umožňuje testům určit „dnešek" napevno. Velikost účtu
+    slouží k přepočtu výsledku na procenta; nula znamená, že známa není.
     """
     vybrane = vyber(positions, rozsah, den)
     bezici = [p for p in vybrane if p.state.is_active]
@@ -317,7 +342,7 @@ def sestav(
         rozsah=rozsah,
         bezici=_serad_bezici(bezici),
         ukoncene=_serad_ukoncene(ukoncene),
-        souhrn=_spocti_souhrn(bezici, ukoncene),
+        souhrn=_spocti_souhrn(bezici, ukoncene, account_size),
         krivka=_krivka(ukoncene),
         podle_tickeru=_podle_tickeru(bezici, ukoncene),
     )

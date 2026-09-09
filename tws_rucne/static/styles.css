@@ -457,7 +457,7 @@
   display: grid;
   flex: 0 0 auto;
   gap: 8px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   width: 100%;
 }
 
@@ -472,6 +472,10 @@
 
 .dlazdice-celkem {
   border-left-color: #2563eb;
+}
+
+.dlazdice-z_uctu {
+  border-left-color: #059669;
 }
 
 .dlazdice-realizovano {
@@ -758,8 +762,14 @@
 }
 
 .pomer-pulka {
+  display: flex;
   flex: 1 1 0;
   min-width: 0;
+}
+
+/* Ztráta roste od středu doleva, zisk doprava */
+.pomer-pulka-ztrata {
+  justify-content: flex-end;
 }
 
 .pomer-pulka:first-child {
@@ -769,6 +779,22 @@
 
 .pomer-pulka:last-child {
   padding-left: 3px;
+}
+
+/* Pruh porovnání. Délku nese proměnná --pomer (podíl z nejlepšího výsledku
+   dne), vzhled zůstává tady; zaoblený je na obou koncích */
+.pomer-pruh {
+  border-radius: 999px;
+  height: 9px;
+  width: calc(var(--pomer, 0) * 100%);
+}
+
+.pomer-pruh-ztrata {
+  background-color: #e53935;
+}
+
+.pomer-pruh-zisk {
+  background-color: #43a047;
 }
 
 /* --- Grafy --- */
@@ -791,7 +817,7 @@
    smrskly na pár pixelů; celá plocha se místo toho posouvá */
 @media (max-width: 1300px) {
   .report-dlazdice {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .report-mrizka {

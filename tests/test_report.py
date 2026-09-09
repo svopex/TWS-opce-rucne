@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tws_rucne import report
 from tws_rucne.models import Position, PositionState
+from tws_rucne.report_dialog import procenta, procenta_s_provizi
 
 
 def pozice(
@@ -265,6 +266,65 @@ class TestPodleTickeru(unittest.TestCase):
         polozky = report.sestav([prvni, druha]).podle_tickeru
         self.assertEqual(len(polozky), 1)
         self.assertAlmostEqual(polozky[0].realizovano, 150.0)
+
+
+class TestProcentaUctu(unittest.TestCase):
+    """Výsledek dne přepočtený na procenta velikosti účtu."""
+
+    def test_procenta_z_velikosti_uctu(self):
+        # 2 ks nakoupené za 3,00 a prodané za 3,50 = +100 USD na účtu 10 000
+        uzavrena = pozice(
+            id="A-1", filled=2, sold=2, sold_value=7.0, state=PositionState.CLOSED
+        )
+        s = report.sestav([uzavrena], account_size=10000.0).souhrn
+        self.assertAlmostEqual(s.account_size, 10000.0)
+        self.assertAlmostEqual(s.procento_uctu(s.celkem_s_provizi), 1.0)
+
+    def test_ztrata_vychazi_zaporne(self):
+        ztratova = pozice(
+            id="A-1", filled=2, sold=2, sold_value=5.0, state=PositionState.CLOSED
+        )
+        s = report.sestav([ztratova], account_size=10000.0).souhrn
+        self.assertAlmostEqual(s.procento_uctu(s.celkem_s_provizi), -1.0)
+
+    def test_bez_znameho_uctu_neni_z_ceho_pocitat(self):
+        # Velikost účtu z TWS zatím nedorazila - procenta se nesmí odhadovat
+        uzavrena = pozice(
+            id="A-1", filled=2, sold=2, sold_value=7.0, state=PositionState.CLOSED
+        )
+        s = report.sestav([uzavrena]).souhrn
+        self.assertEqual(s.account_size, 0.0)
+        self.assertIsNone(s.procento_uctu(s.celkem_s_provizi))
+
+    def test_procenta_pocitaji_i_provize(self):
+        # Zisk 100 USD snížený o provize 10 USD je na účtu 10 000 přesně 0,9 %
+        uzavrena = pozice(
+            id="A-1",
+            filled=2,
+            sold=2,
+            sold_value=7.0,
+            state=PositionState.CLOSED,
+            buy_provize=6.0,
+            sell_provize=4.0,
+        )
+        s = report.sestav([uzavrena], account_size=10000.0).souhrn
+        self.assertAlmostEqual(s.procento_uctu(s.celkem_s_provizi), 0.9)
+        self.assertAlmostEqual(s.procento_uctu(s.celkem), 1.0)
+
+
+class TestFormatuProcent(unittest.TestCase):
+    """Zápis procent z účtu v dlaždici."""
+
+    def test_procenta_maji_znamenko_i_jednotku(self):
+        self.assertEqual(procenta(0.62), "+0.62 %")
+        self.assertEqual(procenta(-1.5), "-1.50 %")
+        self.assertEqual(procenta(None), "-")
+
+    def test_procenta_bez_provizi_stoji_v_zavorce(self):
+        self.assertEqual(procenta_s_provizi(0.62, 0.68), "(+0.68 %)")
+        # Shodná procenta se neopakují dvakrát
+        self.assertEqual(procenta_s_provizi(0.62, 0.62), "")
+        self.assertEqual(procenta_s_provizi(None, 0.68), "")
 
 
 class TestRozdeleniPozic(unittest.TestCase):

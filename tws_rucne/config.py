@@ -108,6 +108,10 @@ class EngineConfig:
     # Dorazí-li u opce nejdřív jen poslední/závěrečná cena, kolik sekund
     # se ještě počká na úplnou kotaci BID/ASK
     quotes_grace_sec: float = 1.5
+    # Jak často se z TWS přebírá velikost účtu (NetLiquidation) pro přepočet
+    # výsledku na procenta účtu. Je to dotaz do TWS, proto vlastní, řidší
+    # tempo; 0 přebírání vypne a přehled výsledků procenta neukáže
+    account_refresh_sec: float = 60.0
 
 
 @dataclass
@@ -301,6 +305,9 @@ def validate_config(cfg: AppConfig) -> None:
 
     if cfg.engine.poll_interval_sec <= 0:
         problemy.append("engine.poll_interval_sec musí být kladné")
+    # Nula je povolená hodnota - vypíná přebírání velikosti účtu z TWS
+    if cfg.engine.account_refresh_sec < 0:
+        problemy.append("engine.account_refresh_sec nesmí být záporné")
     if cfg.ui.refresh_interval_sec <= 0:
         problemy.append("ui.refresh_interval_sec musí být kladné")
 

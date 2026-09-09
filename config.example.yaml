@@ -89,6 +89,10 @@ engine:
   # Dorazí-li u opce nejdřív jen poslední/závěrečná cena, kolik sekund
   # se ještě počká na úplnou kotaci BID/ASK
   quotes_grace_sec: 1.5
+  # Jak často se z TWS přebírá velikost účtu (NetLiquidation) pro přepočet
+  # výsledku dne na procenta účtu. Je to dotaz do TWS, proto vlastní, řidší
+  # tempo; 0 přebírání vypne a dlaždice "Z účtu" zůstane prázdná
+  account_refresh_sec: 60.0
 
 # --- Ukládání stavu ---
 state:

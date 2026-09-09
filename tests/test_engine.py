@@ -662,3 +662,45 @@ class TestOdpoctuOtevreniBurzy(ZakladEnginu):
         self.cfg.trading.exchange_open_time = "10:00"
         self.burza(8, 30)
         self.assertAlmostEqual(self.engine.market_open_seconds(), 5400.0)
+
+
+class TestVelikostiUctu(ZakladEnginu):
+    """Velikost účtu se přebírá z TWS a slouží k procentům v přehledu."""
+
+    async def test_prvni_pruchod_prevezme_hodnotu_z_tws(self):
+        self.assertEqual(self.engine.account_size, 0.0)
+        await self.tik()
+        self.assertAlmostEqual(self.engine.account_size, 12345.0)
+
+    async def test_prevzeti_se_ohlasi_v_prubehu(self):
+        await self.tik()
+        self.assertTrue(any("Velikost účtu" in text for _, text in self.engine.events))
+        # Další průchody už rutinní obnovu nehlásí
+        pocet = len(self.engine.events)
+        self.engine._account_checked = 0.0
+        await self.tik()
+        self.assertEqual(len(self.engine.events), pocet)
+
+    async def test_hodnota_se_obnovuje_az_po_uplynuti_intervalu(self):
+        await self.tik()
+        self.ib.net_liquidation_value = 20000.0
+
+        # Hned po převzetí se do TWS znovu nesahá
+        await self.tik()
+        self.assertAlmostEqual(self.engine.account_size, 12345.0)
+
+        # Po uplynutí intervalu se hodnota převezme znovu
+        self.engine._account_checked = 0.0
+        await self.tik()
+        self.assertAlmostEqual(self.engine.account_size, 20000.0)
+
+    async def test_bez_hodnoty_z_tws_zustava_nula(self):
+        # TWS souhrn účtu neposlala - procenta se v přehledu nepočítají
+        self.ib.net_liquidation_value = None
+        await self.tik()
+        self.assertEqual(self.engine.account_size, 0.0)
+
+    async def test_nulovy_interval_prebirani_vypne(self):
+        self.cfg.engine.account_refresh_sec = 0.0
+        await self.tik()
+        self.assertEqual(self.engine.account_size, 0.0)
