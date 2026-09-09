@@ -164,7 +164,19 @@ class PositionCard:
                 self.kontrakt = ui.label().classes("popis-kontraktu")
                 self.smer = ui.label().classes("odznak-smer")
                 ui.space()
-                self.stav = ui.label().classes("odznak")
+                # Pravý okraj karty: stav pozice a pod ním správa pozice -
+                # stažení nevyplněného příkazu z trhu a úklid přehledu.
+                # Vždy je vidět nanejvýš jedno z obou tlačítek.
+                with ui.column().classes("sloupec-pozice-stav"):
+                    self.stav = ui.label().classes("odznak")
+                    self.btn_zrusit = ui.button(
+                        "Zrušit příkaz v trhu",
+                        on_click=lambda: self.parent.cancel_order(self.position_id),
+                    ).props("dense outline color=grey-7")
+                    self.btn_odstranit = ui.button(
+                        "Odstranit z přehledu",
+                        on_click=lambda: self.parent.remove_position(self.position_id),
+                    ).props("dense outline color=grey-7")
 
             with ui.row().classes("radek-pozice-udaje"):
                 self.drzeno = ui.label().classes("udaj")
@@ -209,17 +221,6 @@ class PositionCard:
             self.radek_prodej_kus = ui.element("div").classes("radek-prodej")
             with self.radek_prodej_kus:
                 self.btn_kus = self._sell_buttons(SELL_SCOPE_ONE, "teal-7")
-
-            # Správa pozice - stažení příkazu z trhu a úklid přehledu
-            with ui.row().classes("radek-pozice-tlacitka") as self.radek_sprava:
-                self.btn_zrusit = ui.button(
-                    "Zrušit příkaz v trhu",
-                    on_click=lambda: self.parent.cancel_order(self.position_id),
-                ).props("dense outline color=grey-7")
-                self.btn_odstranit = ui.button(
-                    "Odstranit z přehledu",
-                    on_click=lambda: self.parent.remove_position(self.position_id),
-                ).props("dense outline color=grey-7")
 
     def _sell_buttons(self, scope: str, barva: str) -> list[tuple[Any, Any, str, float]]:
         """
@@ -358,7 +359,6 @@ class PositionCard:
         self.radek_prodej_vse.set_visibility(position.can_sell_all)
         self.radek_prodej_zaklad.set_visibility(position.can_sell_base)
         self.radek_prodej_kus.set_visibility(position.can_sell_one)
-        self.radek_sprava.set_visibility(position.can_cancel or position.can_remove)
 
     def remove(self) -> None:
         """Odstraní kartu ze stránky."""

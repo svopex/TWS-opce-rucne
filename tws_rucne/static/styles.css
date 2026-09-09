@@ -203,9 +203,21 @@
 }
 
 .radek-pozice-hlavicka {
-  align-items: center;
+  /* Zarovnání k hornímu okraji: v pravém sloupci stojí pod odznakem stavu
+     ještě tlačítko pro stažení příkazu, popis kontraktu ale zůstává nahoře */
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
+}
+
+/* Pravý sloupec hlavičky - odznak stavu a pod ním tlačítko, obojí u okraje */
+.sloupec-pozice-stav {
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.sloupec-pozice-stav .q-btn {
+  font-size: 0.75rem;
 }
 
 .popis-kontraktu {
