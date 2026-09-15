@@ -213,11 +213,18 @@
 /* Pravý sloupec hlavičky - odznak stavu a pod ním tlačítko, obojí u okraje */
 .sloupec-pozice-stav {
   align-items: flex-end;
-  gap: 6px;
+  position: relative;
 }
 
+/* Tlačítko visí pod odznakem mimo tok řádku. Kdyby stálo v toku, natáhlo by
+   hlavičku na svou výšku a pod popisem kontraktu by zůstávala prázdná mezera.
+   Vidět je vždy nanejvýš jedno z obou tlačítek, takže se nepřekrývají. */
 .sloupec-pozice-stav .q-btn {
   font-size: 0.75rem;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  white-space: nowrap;
 }
 
 .popis-kontraktu {
@@ -232,6 +239,18 @@
   font-size: 0.85rem;
   row-gap: 2px;
   width: 100%;
+}
+
+/* Řádek kotace - popis, čísla a zbytek údajů stojí vedle sebe jako jeden údaj */
+.radek-kotace {
+  column-gap: 0.3em;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+/* Čísla BID a ASK v náhledu i na kartě pozice - nejčastěji sledovaný údaj */
+.kotace-hodnota {
+  font-weight: 700;
 }
 
 .udaj-vysledek {

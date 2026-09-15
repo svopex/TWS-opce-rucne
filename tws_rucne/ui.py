@@ -181,7 +181,12 @@ class PositionCard:
             with ui.row().classes("radek-pozice-udaje"):
                 self.drzeno = ui.label().classes("udaj")
                 self.nakup = ui.label().classes("udaj")
-                self.kotace = ui.label().classes("udaj")
+                # Kotace stojí ve vlastním obalu: čísla BID/ASK jsou tučná,
+                # aby se dala v řádku údajů rychle najít
+                with ui.element("div").classes("udaj radek-kotace"):
+                    ui.label("BID/ASK:")
+                    self.kotace = ui.label().classes("kotace-hodnota")
+                    self.kotace_spread = ui.label()
                 self.podklad = ui.label().classes("udaj")
                 self.vysledek = ui.label().classes("udaj udaj-vysledek")
                 with self.vysledek:
@@ -267,10 +272,8 @@ class PositionCard:
             popis_drzeno += " (runner)"
         self.drzeno.set_text(popis_drzeno)
         self.nakup.set_text(f"Nákup: {fmt(position.fill_price)}")
-        self.kotace.set_text(
-            f"BID/ASK: {fmt(position.option_bid)} / {fmt(position.option_ask)}"
-            f" (spread {fmt(position.spread_pct, 1, ' %')})"
-        )
+        self.kotace.set_text(f"{fmt(position.option_bid)} / {fmt(position.option_ask)}")
+        self.kotace_spread.set_text(f"(spread {fmt(position.spread_pct, 1, ' %')})")
         self.podklad.set_text(f"Podklad: {fmt(position.underlying_price)}")
 
         # U pozice se zbytkem po částečném prodeji se ukazuje nejdřív výsledek
@@ -512,7 +515,13 @@ class TradingUI:
             with ui.column().classes("nahled"):
                 self.nahled_kontrakt = ui.label("Zadejte ticker.").classes("nahled-kontrakt")
                 self.nahled_podklad = ui.label().classes("nahled-radek")
-                self.nahled_kotace = ui.label().classes("nahled-radek")
+                self.nahled_kotace_radek = ui.element("div").classes(
+                    "nahled-radek radek-kotace"
+                )
+                with self.nahled_kotace_radek:
+                    ui.label("BID/ASK:")
+                    self.nahled_kotace = ui.label().classes("kotace-hodnota")
+                    self.nahled_kotace_zbytek = ui.label()
                 self.nahled_naklady = ui.label().classes("nahled-radek")
             self.nahled_varovani = ui.column().classes("nahled-varovani")
             self.loading_label = ui.label("Načítám data z TWS…").classes("nahled-nacitani")
@@ -774,8 +783,10 @@ class TradingUI:
 
         if preview is None or not preview.ready:
             self.nahled_kontrakt.set_text(chyba or "Zadejte ticker.")
-            for popisek in (self.nahled_podklad, self.nahled_kotace, self.nahled_naklady):
+            for popisek in (self.nahled_podklad, self.nahled_naklady):
                 popisek.set_text("")
+            # Řádek kotace se skládá z víc popisků, proto mizí celý
+            self.nahled_kotace_radek.set_visibility(False)
             self._refresh_buy_buttons()
             return
 
@@ -797,9 +808,10 @@ class TradingUI:
         self.nahled_podklad.set_text(
             f"Podklad: {fmt(preview.current_price)} | delta: {fmt(preview.delta)}"
         )
-        self.nahled_kotace.set_text(
-            f"BID/ASK: {fmt(preview.option_bid)} / {fmt(preview.option_ask)} | "
-            f"MID: {fmt(preview.mid)} | spread: {fmt(preview.spread_pct, 1, ' %')}"
+        self.nahled_kotace_radek.set_visibility(True)
+        self.nahled_kotace.set_text(f"{fmt(preview.option_bid)} / {fmt(preview.option_ask)}")
+        self.nahled_kotace_zbytek.set_text(
+            f"| MID: {fmt(preview.mid)} | spread: {fmt(preview.spread_pct, 1, ' %')}"
         )
         naklady = calc.order_value(preview.mid, self._quantity())
         self.nahled_naklady.set_text(
