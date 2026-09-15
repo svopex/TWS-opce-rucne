@@ -67,5 +67,22 @@ class TestObchodniHodinyBurzy(unittest.TestCase):
         validate_config(cfg)
 
 
+class TestRezervacnichSouboru(unittest.TestCase):
+    """Cesty ke stavům jiných aplikací se ověřují jako seznam."""
+
+    def test_seznam_cest_projde(self):
+        cfg = AppConfig()
+        cfg.strike.reserved_state_files = ["../TWS-opce/state.json"]
+        validate_config(cfg)
+
+    def test_jedina_cesta_misto_seznamu_neprojde(self):
+        # Zápis bez pomlčky v YAML by se jinak četl po písmenech
+        cfg = AppConfig()
+        cfg.strike.reserved_state_files = "../TWS-opce/state.json"
+        with self.assertRaises(ValueError) as chyba:
+            validate_config(cfg)
+        self.assertIn("reserved_state_files", str(chyba.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

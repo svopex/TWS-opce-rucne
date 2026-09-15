@@ -101,6 +101,12 @@ class StrikeConfig:
     # Brání tomu, aby se pozice této aplikace v TWS sečetla s pozicí jiné
     # aplikace na témže kontraktu - TWS je vede jako jedinou pozici.
     avoid_occupied: bool = True
+    # Stavové soubory jiných aplikací (jejich state.json), ze kterých se čte,
+    # které kontrakty si už drží jejich obchody. Obchod čekající na zúžení
+    # spreadu ještě není v TWS zadaný, takže se o něm jinak nedá vědět.
+    # Relativní cesta se vztahuje k adresáři, odkud je aplikace spuštěna;
+    # čte se jen při zapnutém avoid_occupied.
+    reserved_state_files: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -262,6 +268,12 @@ def validate_config(cfg: AppConfig) -> None:
         )
     if cfg.strike.otm_steps < 0:
         problemy.append("strike.otm_steps nesmí být záporné")
+    # Překlep v zápisu (jediná cesta místo seznamu) by se jinak projevil až
+    # čtením neexistujících souborů podle jednotlivých písmen
+    if not isinstance(cfg.strike.reserved_state_files, list) or any(
+        not isinstance(cesta, str) for cesta in cfg.strike.reserved_state_files
+    ):
+        problemy.append("strike.reserved_state_files musí být seznam cest k souborům")
 
     if cfg.trading.default_right not in RIGHTS:
         problemy.append(

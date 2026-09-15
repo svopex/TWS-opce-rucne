@@ -23,6 +23,16 @@ SELL_SCOPE_ONE = "one"
 ASK_MARKUPS = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0)
 
 
+def contract_label(symbol: str, expiration: str, right: str, strike: float) -> str:
+    """
+    Popis opčního kontraktu pro obchodníka, například 'AAPL 20260918 CALL 230.00'.
+
+    Jediné místo, kde se popis skládá - čtou ho karty pozic, náhled zadání
+    i hlášení o kontraktu zamluveném jinou aplikací, takže všude vypadá stejně.
+    """
+    return f"{symbol} {expiration} {RIGHT_LABELS.get(right, right)} {cislo_text(strike)}"
+
+
 def cislo_text(hodnota: float, desetin: int = 2, znamenko: bool = False) -> str:
     """
     Číslo pro zobrazení - tisíce oddělené mezerou, desetinná tečka.
@@ -162,7 +172,7 @@ class Position:
     @property
     def contract_label(self) -> str:
         """Popis kontraktu, například 'AAPL 20260918 CALL 230'."""
-        return f"{self.symbol} {self.expiration} {self.right_label} {cislo_text(self.strike)}"
+        return contract_label(self.symbol, self.expiration, self.right, self.strike)
 
     # ------------------------------------------------------------------
     # Množství

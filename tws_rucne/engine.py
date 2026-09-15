@@ -29,10 +29,12 @@ from .models import (
     Position,
     PositionState,
     cislo_text,
+    contract_label,
     price_kind_label,
     ukoncene_pozice_text,
     zbytek_text,
 )
+from .reservations import ReservedContracts
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +95,7 @@ class Preview:
     @property
     def right_label(self) -> str:
         """CALL / PUT pro zobrazení."""
-        return "CALL" if self.right == "C" else "PUT"
+        return RIGHT_LABELS.get(self.right, self.right)
 
     @property
     def mid(self) -> float | None:
@@ -110,7 +112,7 @@ class Preview:
         """Popis vybraného kontraktu pro rozhraní."""
         if not self.ready or self.strike is None:
             return ""
-        return f"{self.symbol} {self.expiration} {self.right_label} {cislo_text(self.strike)}"
+        return contract_label(self.symbol, self.expiration, self.right, self.strike)
 
 
 class ManualEngine:
@@ -125,6 +127,12 @@ class ManualEngine:
         self.events: list[tuple[datetime, str]] = []
         # Opční pozice na účtu, které aplikace neřídí
         self.unmanaged: dict[int, PositionInfo] = {}
+        # Kontrakty zamluvené obchody jiných aplikací, čtené z jejich
+        # uloženého stavu - vlastní stav se přitom vynechává
+        self.reserved = ReservedContracts(
+            cfg.strike.reserved_state_files,
+            cfg.state.file if cfg.state.enabled else None,
+        )
         # Naposledy připravené zadání
         self._preview: Preview | None = None
         self._ids = itertools.count(1)
@@ -412,8 +420,8 @@ class ManualEngine:
 
             if option.conId not in obsazene:
                 preview.warnings.append(
-                    f"Strike {prvni_strike:g} už obsadil cizí příkaz nebo pozice "
-                    f"({prvni_obsazeno}) - vybrán {strike:g}."
+                    f"Strike {prvni_strike:g} už obsadil {prvni_obsazeno} "
+                    f"- vybrán {strike:g}."
                 )
                 return strike, option, detaily
 
@@ -421,9 +429,9 @@ class ManualEngine:
         # musí vědět, že se nákup v TWS sečte s cizí pozicí.
         preview.occupied_conid = prvni_option.conId
         preview.warnings.append(
-            f"POZOR: strike {prvni_strike:g} už obsadil cizí příkaz nebo pozice "
-            f"({prvni_obsazeno}) a volný strike se poblíž nenašel. Nákup se v TWS "
-            f"sečte s cizí pozicí - zkontrolujte ji před zadáním."
+            f"POZOR: strike {prvni_strike:g} už obsadil {prvni_obsazeno} "
+            f"a volný strike se poblíž nenašel. Nákup se v TWS sečte s cizí "
+            f"pozicí - zkontrolujte ji před zadáním."
         )
         return prvni
 
@@ -622,9 +630,9 @@ class ManualEngine:
                 puvodni = preview.contract_label
                 await self.prepare(symbol, right)
                 raise ValueError(
-                    f"Kontrakt {puvodni} mezitím obsadil cizí příkaz nebo pozice "
-                    f"({popis}) - nákup se nezadává. V náhledu je připravený nový "
-                    f"strike, zkontrolujte jej a stiskněte znovu."
+                    f"Kontrakt {puvodni} mezitím obsadil {popis} - nákup se "
+                    f"nezadává. V náhledu je připravený nový strike, "
+                    f"zkontrolujte jej a stiskněte znovu."
                 )
 
         # Limitní cena se počítá z čerstvých kotací, ne z těch v náhledu
@@ -1698,26 +1706,42 @@ class ManualEngine:
         """
         Opční kontrakty, na které si nárokuje místo někdo jiný.
 
-        Skládá se ze dvou zdrojů: živé příkazy v TWS bez značky této aplikace
-        (druhá aplikace u stejné TWS, nebo příkaz zadaný ručně v okně TWS)
-        a držené pozice, které aplikace neřídí. Vlastní příkazy ani vlastní
-        pozice se do výsledku nedostanou - do svého kontraktu musí jít
-        dokupovat dál.
+        Skládá se ze tří zdrojů: živé příkazy v TWS bez značky této aplikace
+        (druhá aplikace u stejné TWS, nebo příkaz zadaný ručně v okně TWS),
+        držené pozice, které aplikace neřídí, a obchody zamluvené v uloženém
+        stavu jiné aplikace. Vlastní příkazy ani vlastní pozice se do výsledku
+        nedostanou - do svého kontraktu musí jít dokupovat dál.
 
-        Klíčem je conId, hodnotou popis kontraktu pro hlášení obchodníkovi.
-        Parametr refresh si vynutí čerstvý dotaz do TWS místo krátké paměti,
-        kterou si služba drží kvůli opakované přípravě zadání.
+        Klíčem je conId, hodnotou popis pro hlášení obchodníkovi - včetně
+        druhu zdroje, takže z hlášky je poznat, jestli kontrakt drží cizí
+        příkaz, neřízená pozice, nebo obchod jiné aplikace. Parametr refresh
+        si vynutí čerstvý dotaz do TWS místo krátké paměti, kterou si služba
+        drží kvůli opakované přípravě zadání; stavu jiné aplikace se netýká,
+        ten se stejně čte ze souboru při každém volání.
         """
         # Vypnuté vyhýbání se řeší tady, aby o konfiguraci nemusel vědět
         # každý volající zvlášť; prázdný výsledek výběr striku neomezí
         if not self.cfg.strike.avoid_occupied:
             return {}
 
-        obsazene = await self.ib.foreign_order_conids(refresh)
+        # Každý popis říká i to, čím je kontrakt obsazený - hláška pro
+        # obchodníka pak nemusí vyjmenovávat všechny možnosti a rovnou
+        # ukáže, kde kolizi hledat
+        obsazene = {
+            conid: f"cizí příkaz {popis}".strip()
+            for conid, popis in (await self.ib.foreign_order_conids(refresh)).items()
+        }
 
         # Neřízené pozice na účtu - tytéž, na které upozorňuje _warn_unmanaged.
         # Čte se paměť spojení, kterou naplnila obnova po připojení; příkaz
         # v TWS má přednost, protože nese čerstvější popis kontraktu.
         for conid, info in self._unmanaged_positions(self.ib.known_positions()).items():
-            obsazene.setdefault(conid, info.label)
+            obsazene.setdefault(conid, f"neřízená pozice {info.label}".strip())
+
+        # Obchody, které si jiná aplikace drží ve svém stavu, aniž by je
+        # zadala do TWS - typicky obchod čekající na zúžení spreadu. V TWS
+        # takový kontrakt nic neobsazuje, přesto na něj druhá aplikace míří,
+        # a nakoupené kusy by se v TWS sečetly do jediné pozice.
+        for conid, popis in self.reserved.conids().items():
+            obsazene.setdefault(conid, popis)
         return obsazene

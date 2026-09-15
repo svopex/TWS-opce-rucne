@@ -356,7 +356,9 @@ Za obsazený se kontrakt považuje, když:
   klientů TWS; zachytí tedy i příkaz, který teprve čeká na cenovou podmínku
   a pozice z něj ještě není,
 - nebo na něm účet drží **pozici, kterou aplikace neřídí** - tutéž, na jakou
-  upozorňuje pruh neřízených pozic.
+  upozorňuje pruh neřízených pozic,
+- nebo si jej drží **čekající obchod jiné aplikace**, přečtený z jejího
+  stavového souboru (viz níže).
 
 Vlastní příkazy ani vlastní pozice obsazení nezakládají, takže do svého
 kontraktu jde dokupovat dál. Ustoupí se nejvýš o čtyři kroky rastru - dál od
@@ -369,8 +371,41 @@ obsadit mezi přípravou náhledu a stiskem tlačítka. V takovém případě st
 trhu nic nepošle, připraví se nový náhled s volným strikem a nákup se odmítne
 s vysvětlením.
 
-**Chrání to jen tuto aplikaci.** Druhá aplikace o ruční pozicích neví a může
-si strike vybrat bez ohledu na ně, takže kolize může vzniknout z její strany.
+#### Čekající obchody druhé aplikace
+
+Do TWS se dívá jen ta část ochrany, která hledá živé příkazy a pozice.
+Obchod, který v sousední aplikaci TWS-opce teprve čeká - typicky **blokovaný
+spreadem**, než se kotace zúží - v TWS zadaný není, takže o něm dotaz do TWS
+nic neřekne. Přitom právě on míří na stejný strike a zadá se, jakmile spread
+povolí.
+
+Jediné, co o něm vypovídá, je uložený stav druhé aplikace. Cesty k němu se
+nastavují v `strike.reserved_state_files`:
+
+```yaml
+strike:
+  avoid_occupied: true
+  reserved_state_files:
+    - ../TWS-opce/state.json
+```
+
+Soubor se čte pouze pro čtení a nezávisle na tom, jestli druhá aplikace běží;
+znovu se parsuje teprve po změně na disku. Za zamluvený se bere kontrakt
+každého obchodu, který **neskončil** - tedy vše kromě stavů `CLOSED`,
+`CANCELLED`, `MISSED` a `ERROR`. Neznámý stav se počítá za zamluvený, aby nově
+přidaný stav v druhé aplikaci ochranu tiše nevypnul. Chybějící soubor nevadí,
+po poškozeném se použije naposledy přečtený obsah - výpadek čtení ochranu
+nevypne. Vlastní stavový soubor se ze seznamu vynechává.
+
+Rezervace drží tak dlouho, dokud obchod v druhé aplikaci existuje: zrušený
+nebo uklizený obchod strike hned uvolní, zapomenutý čekající obchod jej drží
+dál. Blokovat to ale nic nemůže - nenajde-li se volný strike, nákup se jen
+ohlásí a rozhodne obchodník.
+
+**Opačným směrem ochrana nefunguje.** Aplikace TWS-opce vyhýbání se obsazeným
+kontraktům nemá a o ručních pozicích neví, takže kolize může vzniknout z její
+strany. Pořadí zadávání proto má být: **nejdřív obchod v TWS-opce, potom
+ruční nákup**, který se už jejímu striku vyhne.
 
 ---
 
@@ -416,7 +451,8 @@ se mění:
 | `trading.outside_rth` | `true` = příkazy smí být vyplněny i mimo hlavní obchodní hodiny |
 | `trading.exchange_timezone`, `exchange_open_time`, `exchange_close_time` | hodiny burzy pro odpočet v hlavičce (obchodování neovlivňují) |
 | `strike.mode`, `strike.otm_steps` | jak se vybírá strike |
-| `strike.avoid_occupied` | `true` = vyhnout se kontraktu, který obsadil cizí příkaz nebo neřízená pozice |
+| `strike.avoid_occupied` | `true` = vyhnout se kontraktu, který obsadil cizí příkaz, neřízená pozice nebo obchod jiné aplikace |
+| `strike.reserved_state_files` | stavové soubory jiných aplikací, ze kterých se čte, které kontrakty drží jejich čekající obchody |
 | `expiration.mode`, `expiration.min_dte` | jak se vybírá expirace |
 | `engine.market_data_timeout_sec`, `engine.quotes_grace_sec` | jak dlouho se při přípravě zadání čeká na ceny z TWS |
 | `engine.account_refresh_sec` | jak často se z TWS přebírá velikost účtu pro procenta v přehledu (0 = vypnuto) |

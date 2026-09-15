@@ -1018,9 +1018,25 @@ class TradingUI:
             if s.mode == "otm_offset"
             else "nejbližší aktuální ceně (ATM)"
         )
+        # Vyhýbání se obsazeným kontraktům patří na oči i se zdrojem:
+        # z rozhraní by jinak nešlo poznat, že aplikace ustupuje i obchodům
+        # druhé aplikace, o kterých TWS zatím neví. Sledované soubory se berou
+        # z čtečky, ne z konfigurace - ta ještě obsahuje i vlastní stav,
+        # který čtečka zahodila.
+        if s.avoid_occupied:
+            # Adresář souboru pojmenuje druhou aplikaci líp než 'state.json'
+            zdroje = ["příkazů a pozic v TWS"] + [
+                f"obchodů z {cesta.parent.name or cesta}"
+                for cesta in self.engine.reserved.paths
+            ]
+            obsazene = f"přeskakují se podle {', '.join(zdroje)}"
+        else:
+            obsazene = "nepřeskakují se"
+
         self.config_label.set_text(
             f"Expirace: {expirace}\n"
             f"Strike: {strike}\n"
+            f"Obsazené strike: {obsazene}\n"
             f"Runner: {t.runner_quantity} ks | max. spread {t.max_spread_pct:g} %\n"
             f"Tolerance: ASK +{t.ask_tolerance_pct:g} % | BID -{t.bid_tolerance_pct:g} %\n"
             f"Platnost příkazů: {t.tif}"

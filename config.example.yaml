@@ -89,6 +89,14 @@ strike:
   # kontraktu jde dál. Nenajde-li se volný strike, kontrakt se nabídne
   # i tak a příprava zadání na kolizi jen upozorní.
   avoid_occupied: true
+  # Stavové soubory jiných aplikací, ze kterých se čte, které kontrakty si
+  # už drží jejich obchody. Obchod, který v druhé aplikaci teprve čeká
+  # (třeba na zúžení spreadu), není v TWS zadaný, takže se o něm jinak
+  # nedá vědět a obě aplikace by zamířily na týž strike. Relativní cesta
+  # se vztahuje k adresáři, odkud je aplikace spuštěna; čte se jen při
+  # zapnutém avoid_occupied a vlastní stav se vynechává.
+  reserved_state_files: []
+    - ../TWS-opce/state.json
 
 # --- Monitorovací smyčka ---
 engine:

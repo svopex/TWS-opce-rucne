@@ -84,6 +84,15 @@ def main() -> None:
                         f"Pozice z minulého běhu se nepodařilo obnovit: {exc} - "
                         f"zkontrolujte je v TWS."
                     )
+        # Překlep v cestě k cizímu stavu by se jinak tvářil stejně jako
+        # neběžící soused - obchodník by se spolehl na ochranu, která nečte nic
+        chybi = [str(cesta) for cesta in engine.reserved.paths if not cesta.exists()]
+        if chybi:
+            engine.log_event(
+                f"Stav jiné aplikace nenalezen: {', '.join(chybi)} - "
+                f"obsazené strike se odtud zatím nečtou."
+            )
+
         engine.start()
 
     async def on_shutdown() -> None:

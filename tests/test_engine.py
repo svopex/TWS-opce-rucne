@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
 from tests.fake_ib import NAN, OPTION_CONID, UNDERLYING_CONID
-from tests.zaklad import ZakladEnginu
+from tests.zaklad import ZakladEnginu, cizi_obchod, cizi_stav
 from tws_rucne.models import (
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
@@ -71,16 +74,7 @@ class TestObsazenyStrike(ZakladEnginu):
 
     def setUp(self) -> None:
         super().setUp()
-        # Rastr je po 2,5 bodu; při ceně 230 padne první strike mimo peníze
-        # u CALL na 232,5 a každý ústupek je o 2,5 bodu dál
-        self.ib.price_underlying = 230.0
-        self.ib.option_conids = {
-            232.5: 800001,
-            235.0: 800002,
-            237.5: 800003,
-            240.0: 800004,
-            242.5: 800005,
-        }
+        self.nastav_rastr_striku()
 
     async def test_cizi_prikaz_posune_strike_dal_mimo_penize(self):
         self.ib.foreign_orders = {800001: "AAPL 250103C00232500"}
@@ -162,6 +156,65 @@ class TestObsazenyStrike(ZakladEnginu):
         position = await self.engine.buy("AAPL", 3, "C", "ask")
         self.assertEqual(position.strike, 232.5)
         self.assertEqual(len(self.ib.placed), 1)
+
+
+class TestZamluvenyStrikeJinouAplikaci(ZakladEnginu):
+    """Kontrakt, který si drží čekající obchod druhé aplikace, se přeskočí."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.nastav_rastr_striku()
+
+        docasny = tempfile.TemporaryDirectory()
+        self.addCleanup(docasny.cleanup)
+        self.stav = Path(docasny.name) / "state.json"
+        self.cfg.strike.reserved_state_files = [str(self.stav)]
+        # Čtečka rezervací vzniká s enginem, konfigurace tedy musí platit dřív
+        self.prestav_engine()
+
+    def zapis_obchod(self, conid: int = 800001, state: str = "SPREAD_BLOCKED") -> None:
+        """Uloží do stavu druhé aplikace jeden obchod na daném kontraktu."""
+        self.stav.write_text(
+            json.dumps(cizi_stav(cizi_obchod(conid=conid, state=state))), encoding="utf-8"
+        )
+
+    async def test_obchod_blokovany_spreadem_posune_strike(self):
+        # Druhá aplikace čeká na zúžení spreadu, v TWS proto žádný příkaz
+        # nevisí - kontrakt si přesto drží
+        self.zapis_obchod()
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 235.0)
+        self.assertTrue(any("obchod AAPL-39 jiné aplikace" in v for v in nahled.warnings))
+
+    async def test_ukonceny_obchod_strike_neblokuje(self):
+        self.zapis_obchod(state="CLOSED")
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        self.assertEqual(nahled.warnings, [])
+
+    async def test_bez_nastaveneho_souboru_se_nic_nemeni(self):
+        self.cfg.strike.reserved_state_files = []
+        self.prestav_engine()
+        self.zapis_obchod()
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+
+    async def test_vypnute_vyhybani_rezervace_ignoruje(self):
+        self.cfg.strike.avoid_occupied = False
+        self.zapis_obchod()
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+
+    async def test_nakup_odmitne_kontrakt_zamluveny_az_po_priprave(self):
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        # Druhá aplikace si kontrakt zamluvila mezi přípravou a stiskem tlačítka
+        self.zapis_obchod()
+        with self.assertRaises(ValueError) as chyba:
+            await self.engine.buy("AAPL", 1, "C", "ask")
+        self.assertIn("mezitím obsadil", str(chyba.exception))
+        self.assertEqual(self.ib.placed, [])
+        self.assertEqual(self.engine.preview.strike, 235.0)
 
 
 class TestNakup(ZakladEnginu):
