@@ -223,16 +223,16 @@ class PositionCard:
         Vykreslí řádek prodejních tlačítek pro daný rozsah pozice.
 
         Nabídka jde od nejjistějšího vyplnění k nejvyšší ceně: BID, MID, ASK
-        a nad ním přirážky nad poptávkou z konfigurace (trading.ask_markups_pct).
+        a nad ním přirážky nad poptávkou (trading.ask_markups_pct v konfiguraci).
         Čím výš, tím víc za kontrakt přijde, ale tím menší je šance, že se
         příkaz vyplní. Vrací trojice (tlačítko, druh ceny, přirážka), ze kterých
         se při každém překreslení obnovují popisky i ceny.
         """
         tlacitka: list[tuple[Any, Any, str, float]] = []
         varianty = [("bid", 0.0), ("mid", 0.0), ("ask", 0.0)]
-        # Kolik tlačítek s přirážkou vznikne, určuje délka seznamu v konfiguraci;
+        # Kolik tlačítek s přirážkou vznikne, určuje délka nabídky z enginu;
         # mřížka řádku si sloupce dopočítá sama
-        varianty += [("ask", p) for p in self.parent.cfg.trading.ask_markups_pct]
+        varianty += [("ask", p) for p in self.parent.engine.ask_markups_pct]
 
         for kind, markup in varianty:
             # Plnou barvou je jen první tlačítko, ostatní jsou obtažená -

@@ -534,6 +534,16 @@ class ManualEngine:
         )
         return None if cena is None else calc.round_to_tick(cena, position.min_tick)
 
+    @property
+    def ask_markups_pct(self) -> list[float]:
+        """
+        Přirážky nad poptávanou cenou nabízené prodejními tlačítky (v procentech).
+
+        Rozhraní si nabídku bere odtud, ne z konfigurace: ceny tlačítek už
+        počítá engine (position_sell_limit), takže obojí pochází z jednoho místa.
+        """
+        return self.cfg.trading.ask_markups_pct
+
     def position_sell_limit(
         self, position: Position, kind: str, markup_pct: float = 0.0
     ) -> float | None:

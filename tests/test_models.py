@@ -14,12 +14,10 @@ from tws_rucne.models import (
     SELL_SCOPE_ONE,
     Position,
     PositionState,
-    button_pnl_text,
     buy_button_label,
-    sell_button_text,
     pnl_text,
     price_kind_label,
-    sell_button_label,
+    sell_button_text,
     ukoncene_pozice_text,
 )
 
@@ -192,20 +190,21 @@ class TestPopiskyTlacitek(unittest.TestCase):
         self.assertEqual(buy_button_label("mid", 1), "1 ks za MID")
 
     def test_popisek_prodeje(self):
-        self.assertEqual(sell_button_label("bid", 3), "BID (3 ks)")
-        self.assertEqual(sell_button_label("mid", 1), "MID (1 ks)")
+        # Bez kotace zůstane na tlačítku jen druh ceny a počet kusů
+        self.assertEqual(sell_button_text("bid", 3, 0.0, None, None), "BID (3 ks)")
+        self.assertEqual(sell_button_text("mid", 1, 0.0, None, None), "MID (1 ks)")
 
     def test_oba_radky_maji_stejny_tvar_popisku(self):
         # Stejná délka popisku drží tlačítka obou řádků ve sloupcích nad sebou
-        vse = sell_button_label("bid", 3)
-        runner = sell_button_label("bid", 1)
+        vse = sell_button_text("bid", 3, 0.0, None, None)
+        runner = sell_button_text("bid", 1, 0.0, None, None)
         self.assertEqual(len(vse), len(runner))
 
     def test_popisek_prirazky_nad_poptavkou(self):
         # U přirážek se nepíše ani počet kusů, ani procenta - v řádku je počet
         # jasný z tlačítek vedle a o kolik jde, říká cena a zisk za popiskem
-        self.assertEqual(sell_button_label("ask", 3, 1.0), "ASK")
-        self.assertEqual(sell_button_label("ask", 2, 5.0), "ASK")
+        self.assertEqual(sell_button_text("ask", 3, 1.0, None, None), "ASK")
+        self.assertEqual(sell_button_text("ask", 2, 5.0, None, None), "ASK")
 
     def test_popis_ceny(self):
         self.assertEqual(price_kind_label("ask"), "ASK")
@@ -245,17 +244,14 @@ class TestVysledkuNaTlacitku(unittest.TestCase):
     def test_bez_kotace_neni_co_pocitat(self):
         self.assertIsNone(self._pozice().sell_pnl_at(None, 1))
 
-    def test_popisek_vysledku(self):
-        self.assertEqual(button_pnl_text(14.0), "+14 USD")
-        self.assertEqual(button_pnl_text(-3.0), "-3 USD")
-
     def test_drobny_vysledek_se_pise_jako_nula(self):
         # Znaménko u dvaceti centů by se pletlo se skutečným ziskem
-        self.assertEqual(button_pnl_text(0.2), "0 USD")
-        self.assertEqual(button_pnl_text(-0.2), "0 USD")
-
-    def test_chybejici_vysledek_do_popisku_nepatri(self):
-        self.assertEqual(button_pnl_text(None), "")
+        self.assertEqual(
+            sell_button_text("bid", 1, 0.0, 3.00, 0.2), "BID (1 ks) · 3.00 · 0 USD"
+        )
+        self.assertEqual(
+            sell_button_text("bid", 1, 0.0, 3.00, -0.2), "BID (1 ks) · 3.00 · 0 USD"
+        )
 
     def test_cely_popisek_tlacitka(self):
         # Prodej tří kusů za BID 3.10 při nákupu za 3.00

@@ -299,23 +299,15 @@ def validate_config(cfg: AppConfig) -> None:
     if cfg.trading.ask_tolerance_pct < 0 or cfg.trading.bid_tolerance_pct < 0:
         problemy.append("tolerance nad ASK ani pod BID nesmí být záporná")
 
-    # Přirážky nad poptávkou: jediné číslo místo seznamu nebo záporná hodnota
+    # Přirážky nad poptávkou: jediné číslo místo seznamu nebo nekladná hodnota
     # by se jinak projevily až rozsypaným řádkem tlačítek, případně prodejním
-    # příkazem pod poptávanou cenou
-    if not isinstance(cfg.trading.ask_markups_pct, list):
-        problemy.append("trading.ask_markups_pct musí být seznam procent")
-    else:
-        for hodnota in cfg.trading.ask_markups_pct:
-            # bool je v Pythonu podtyp int - 'true' v YAML by jinak prošlo jako 1 %
-            if isinstance(hodnota, bool) or not isinstance(hodnota, (int, float)):
-                problemy.append(
-                    f"trading.ask_markups_pct smí obsahovat jen čísla, nalezeno '{hodnota}'"
-                )
-            elif hodnota <= 0:
-                problemy.append(
-                    f"trading.ask_markups_pct smí obsahovat jen kladná procenta, "
-                    f"nalezeno {hodnota}"
-                )
+    # příkazem na poptávané ceně nebo pod ní. Pravdivostní hodnota je v Pythonu
+    # podtyp čísla, takže 'true' v YAML by bez vyloučení prošlo jako 1 %
+    if not isinstance(cfg.trading.ask_markups_pct, list) or any(
+        isinstance(p, bool) or not isinstance(p, (int, float)) or p <= 0
+        for p in cfg.trading.ask_markups_pct
+    ):
+        problemy.append("trading.ask_markups_pct musí být seznam kladných procent")
     if cfg.trading.tif not in ("DAY", "GTC"):
         problemy.append(f"trading.tif musí být DAY nebo GTC, nalezeno '{cfg.trading.tif}'")
 

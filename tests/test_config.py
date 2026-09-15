@@ -112,24 +112,24 @@ class TestPrirazekNadAsk(unittest.TestCase):
         # Prodej pod poptávanou cenou nabízí tlačítko BID, ne přirážka
         cfg = AppConfig()
         cfg.trading.ask_markups_pct = [1.0, -2.0]
-        self.assertIn("kladná", self._chyba(cfg))
+        self.assertIn("ask_markups_pct", self._chyba(cfg))
 
     def test_nula_neprojde(self):
         # Nulová přirážka by jen zdvojila tlačítko ASK
         cfg = AppConfig()
         cfg.trading.ask_markups_pct = [0.0]
-        self.assertIn("kladná", self._chyba(cfg))
+        self.assertIn("ask_markups_pct", self._chyba(cfg))
 
     def test_text_misto_cisla_neprojde(self):
         cfg = AppConfig()
         cfg.trading.ask_markups_pct = ["1 %"]
-        self.assertIn("čísla", self._chyba(cfg))
+        self.assertIn("ask_markups_pct", self._chyba(cfg))
 
     def test_pravdivostni_hodnota_neprojde(self):
         # true je v Pythonu podtyp int a jinak by prošlo jako 1 %
         cfg = AppConfig()
         cfg.trading.ask_markups_pct = [True]
-        self.assertIn("čísla", self._chyba(cfg))
+        self.assertIn("ask_markups_pct", self._chyba(cfg))
 
 
 if __name__ == "__main__":
