@@ -29,6 +29,7 @@ from .models import (
     Position,
     PositionState,
     cislo_text,
+    order_pnl_text,
     contract_label,
     price_kind_label,
     ukoncene_pozice_text,
@@ -66,6 +67,18 @@ FILL_PRICE_WAIT_SEC = 3.0
 # Bez potvrzení se nový příkaz nezadává - v trhu by mohly viset oba.
 TRANSFER_CANCEL_WAIT_SEC = 3.0
 TRANSFER_POLL_SEC = 0.2
+
+
+def _popis_vysledku(position: Position, limit: float, quantity: int) -> str:
+    """
+    Věta o výsledku prodeje do hlášky o příkazu, například ', zisk 12 USD'.
+
+    Počítá se z limitní ceny příkazu, ne z kotace: obchodník tak v průběhu
+    vidí, co mu příkaz vynese, když se vyplní za cenu, se kterou byl zadán.
+    Bez nákupní ceny není co počítat a hláška zůstane bez výsledku.
+    """
+    vysledek = order_pnl_text(position.sell_pnl_at(limit, quantity))
+    return f", {vysledek}" if vysledek else ""
 
 
 @dataclass
@@ -786,7 +799,7 @@ class ManualEngine:
         if order.lmtPrice == limit and int(order.totalQuantity) == mnozstvi:
             position.touch(
                 f"Nákupní příkaz zůstává beze změny: {mnozstvi} ks za LMT "
-                f"{cislo_text(limit)} - cena se od zadání nepohnula."
+                f"{cislo_text(limit)}."
             )
             self.log_event(f"{position.id}: {position.message}")
             # Do TWS se nic neposílá, touch() ale přepsal hlášku i updated_at -
@@ -955,7 +968,8 @@ class ManualEngine:
         position.set_state(
             PositionState.SELLING,
             f"Prodejní příkaz v trhu: {mnozstvi} ks za LMT {cislo_text(limit)} "
-            f"({price_kind_label(kind, markup_pct)}){popis_zbytku}.",
+            f"({price_kind_label(kind, markup_pct)}){_popis_vysledku(position, limit, mnozstvi)}"
+            f"{popis_zbytku}.",
         )
         self.log_event(f"{position.id}: {position.message}")
         self._persist()
@@ -991,7 +1005,7 @@ class ManualEngine:
         if order.lmtPrice == limit and int(order.totalQuantity) == celkem:
             position.touch(
                 f"Prodejní příkaz zůstává beze změny: {quantity} ks za LMT "
-                f"{cislo_text(limit)} - cena se od zadání nepohnula."
+                f"{cislo_text(limit)}{_popis_vysledku(position, limit, quantity)}."
             )
             self.log_event(f"{position.id}: {position.message}")
             # Viz přecenění nákupu - změněná hláška a čas patří na disk
@@ -1013,7 +1027,8 @@ class ManualEngine:
         )
         position.touch(
             f"Prodejní příkaz přeceněn: {quantity} ks za LMT {cislo_text(limit)} "
-            f"({price_kind_label(kind, markup_pct)}){prodano}{popis_zbytku}."
+            f"({price_kind_label(kind, markup_pct)})"
+            f"{_popis_vysledku(position, limit, quantity)}{prodano}{popis_zbytku}."
         )
         self.log_event(f"{position.id}: {position.message}")
         self._persist()

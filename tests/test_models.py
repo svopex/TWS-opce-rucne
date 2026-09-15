@@ -15,6 +15,7 @@ from tws_rucne.models import (
     Position,
     PositionState,
     buy_button_label,
+    order_pnl_text,
     pnl_text,
     price_kind_label,
     sell_button_text,
@@ -252,6 +253,17 @@ class TestVysledkuNaTlacitku(unittest.TestCase):
         self.assertEqual(
             sell_button_text("bid", 1, 0.0, 3.00, -0.2), "BID (1 ks) · 3.00 · 0 USD"
         )
+
+    def test_vysledek_do_vety_o_prikazu(self):
+        # Ve větě nese znaménko slovo, číslo zůstává bez něj
+        self.assertEqual(order_pnl_text(45.0), "zisk 45 USD")
+        self.assertEqual(order_pnl_text(-60.0), "ztráta 60 USD")
+
+    def test_vyrovnany_prodej_ve_vete(self):
+        self.assertEqual(order_pnl_text(0.2), "bez zisku i ztráty")
+
+    def test_chybejici_vysledek_vetu_nesklada(self):
+        self.assertEqual(order_pnl_text(None), "")
 
     def test_cely_popisek_tlacitka(self):
         # Prodej tří kusů za BID 3.10 při nákupu za 3.00

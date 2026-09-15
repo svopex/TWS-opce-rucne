@@ -553,6 +553,23 @@ def buy_button_label(kind: str, quantity: int) -> str:
     return f"{quantity} ks za {price_kind_label(kind)}"
 
 
+def order_pnl_text(pnl: float | None) -> str:
+    """
+    Zisk nebo ztráta prodejního příkazu do zápisu o obchodu, například
+    'zisk 12 USD' nebo 'ztráta 3 USD'.
+
+    Znaménko nese slovo, ne číslo - ve větě se čte líp než '-3 USD'.
+    Zaokrouhluje se na celé dolary stejně jako na tlačítkách; hodnota pod
+    půl dolaru se hlásí jako vyrovnaná. Bez nákupní ceny není co počítat
+    a volající větu o výsledku neskládá.
+    """
+    if pnl is None:
+        return ""
+    if abs(pnl) < 0.5:
+        return "bez zisku i ztráty"
+    return f"{'zisk' if pnl > 0 else 'ztráta'} {cislo_text(abs(pnl), 0)} USD"
+
+
 def sell_button_text(
     kind: str,
     quantity: int,

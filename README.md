@@ -193,6 +193,18 @@ nepočítají: prodejní se dopředu nezná, takže číslo vychází čistě z 
 stejně jako limit vedle něj. Výsledek celé pozice včetně provizí zůstává
 v řádku údajů nad tlačítky (`P/L`).
 
+Totéž číslo se zapisuje i do **panelu průběhu**, aby bylo u každého příkazu
+vidět, s čím do trhu šel:
+
+```
+Prodejní příkaz v trhu: 2 ks za LMT 3.25 (ASK +1 %), zisk 10 USD, v pozici zbývá runner (1 ks).
+Prodejní příkaz přeceněn: 3 ks za LMT 3.00 (BID), ztráta 60 USD.
+```
+
+Ve větě nese znaménko slovo (`zisk` / `ztráta`), prodej za nákupní cenu se
+hlásí jako `bez zisku i ztráty`. Procenta přirážky v zápisu zůstávají -
+bez nich by se zpětně nedalo poznat, které tlačítko příkaz zadalo.
+
 U přirážek se na tlačítko nepíše ani počet kusů, ani procenta - počet je
 zřejmý z tlačítek vedle a o kolik nad ASK přirážka míří, říká cena a zisk.
 Nastavené odstupy ukazuje karta **Nastavení** pod formulářem.

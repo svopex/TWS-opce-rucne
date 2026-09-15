@@ -294,21 +294,29 @@
 .radek-prodej {
   display: grid;
   gap: 6px;
-  grid-auto-columns: 1fr;
+  /* minmax(0, 1fr) přes celou šířku karty: sloupce se dělí o místo rovným
+     dílem a jejich šířka nezávisí na délce popisku. Tlačítka tak zůstávají
+     na svém místě, i když v ceně nebo zisku přibude číslice - s dřívějším
+     fit-content se celý řádek přeměřil pod kurzorem a trefit se do tlačítka
+     bylo při každé změně kotace o štěstí */
+  grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
-  /* fit-content s podíly 1fr dá všem sloupcům šířku toho nejširšího popisku:
-     tlačítka jsou stejně široká, ale řádek se neroztahuje přes celou kartu */
-  max-width: 100%;
-  width: fit-content;
+  width: 100%;
 }
 
 .radek-prodej .q-btn {
+  /* Výška na dva řádky textu: kratší popisek tlačítko nesmrskne, takže se
+     řádky pod ním neposouvají, když se popisek zalomí jinak */
+  min-height: 2.4rem;
   min-width: 0;
   width: 100%;
 }
 
-/* Delší popisek se v úzkém sloupci zalomí, místo aby z tlačítka přetekl */
+/* Delší popisek se v úzkém sloupci zalomí, místo aby z tlačítka přetekl.
+   Číslice mají stejnou šířku (tabular-nums), takže se text při změně kotace
+   nepřelévá kvůli užší jedničce nebo širší nule. */
 .radek-prodej .q-btn__content {
+  font-variant-numeric: tabular-nums;
   line-height: 1.15;
   white-space: normal;
 }

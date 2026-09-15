@@ -813,6 +813,43 @@ class TestOchranaProtiDvojimuPrikazu(ZakladEnginu):
         self.assertIn("beze změny", position.message)
 
 
+class TestVysledkuVHlasce(ZakladEnginu):
+    """
+    Hláška o prodejním příkazu nese i zisk nebo ztrátu, se kterou příkaz
+    do trhu jde - v průběhu obchodu je pak vidět, co který příkaz vynese.
+    Kotace náhrady TWS je 3,00 / 3,20, nákup se vyplní za 3,20.
+    """
+
+    async def test_zisk_pri_prodeji_s_prirazkou(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        # ASK 3,20 o 5 % výš je na rastru 3,35, tedy 0,15 nad nákupem krát 300
+        await self.engine.sell(position.id, "ask", SELL_SCOPE_ALL, markup_pct=5.0)
+        self.assertIn("zisk 45 USD", position.message)
+
+    async def test_ztrata_pri_prodeji_za_poptavku(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL)
+        self.assertIn("ztráta 60 USD", position.message)
+
+    async def test_prodej_za_nakupni_cenu_je_vyrovnany(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        await self.engine.sell(position.id, "ask", SELL_SCOPE_ALL)
+        self.assertIn("bez zisku i ztráty", position.message)
+
+    async def test_vysledek_pocita_jen_prodavane_kusy(self):
+        # Základní pozice jsou dva kusy, runner zůstává v trhu
+        position = await self.nakup_vyplnen(quantity=3)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_BASE)
+        self.assertIn("ztráta 40 USD", position.message)
+
+    async def test_preceneni_nese_vysledek_nove_ceny(self):
+        position = await self.nakup_vyplnen(quantity=3)
+        await self.engine.sell(position.id, "ask", SELL_SCOPE_ALL, markup_pct=5.0)
+        await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL, reprice=True)
+        self.assertIn("přeceněn", position.message)
+        self.assertIn("ztráta 60 USD", position.message)
+
+
 class TestProdejNadPoptavkou(ZakladEnginu):
     """Tlačítka ASK a ASK +1 % až +5 % nabízejí prodej nad středem trhu."""
 
