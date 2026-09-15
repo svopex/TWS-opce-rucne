@@ -42,6 +42,11 @@ RTT_TIMEOUT_SEC = 3.0
 # smyčce, takže bez lhůty by mlčící TWS zastavila sledování pozic.
 ACCOUNT_TIMEOUT_SEC = 5.0
 
+# Jak dlouho platí zjištěný seznam cizích příkazů, než se vyžádá z TWS znovu.
+# Příprava zadání běží po každé změně formuláře, takže bez této lhůty by
+# do TWS šel dotaz při každém stisku klávesy.
+FOREIGN_ORDERS_CACHE_SEC = 5.0
+
 
 def order_ref(position_id: str, druh: str) -> str:
     """Sestaví značku příkazu, například 'TWSRUCNE:AAPL-1:buy'."""
@@ -101,6 +106,10 @@ class IBService:
         self._quotes_grace_done: set[int] = set()
         self._connect_lock = asyncio.Lock()
         self._chain_cache: dict[str, Any] = {}
+        # Naposledy zjištěné cizí příkazy a čas jejich zjištění -
+        # viz foreign_order_conids a FOREIGN_ORDERS_CACHE_SEC
+        self._foreign_conids: dict[int, str] = {}
+        self._foreign_checked: float = 0.0
         # Poslední naměřená odezva TWS v milisekundách; None znamená, že se
         # zatím neměřilo, nebo že poslední pokus neuspěl. Drží se tady, aby
         # ji synchronní obnova hlavičky mohla jen přečíst
@@ -164,6 +173,9 @@ class IBService:
         self._tickers.clear()
         self._subscribers.clear()
         self._quotes_grace_done.clear()
+        # Cizí příkazy se po novém spojení musí zjistit znovu
+        self._foreign_conids.clear()
+        self._foreign_checked = 0.0
         # Naměřená odezva patřila ke ztracenému spojení
         self.rtt_ms = None
 
@@ -507,6 +519,22 @@ class IBService:
         except Exception:
             log.exception("Příkaz orderId=%s se nepodařilo zrušit.", trade.order.orderId)
 
+    async def _reload_open_orders(self, kde: str) -> bool:
+        """
+        Vyžádá si z TWS otevřené příkazy včetně těch od ostatních klientů.
+
+        Parametr kde pojmenuje volajícího, aby se v logu poznalo, který dotaz
+        selhal. Vrací True při úspěchu; jak se naloží s neúspěchem, rozhoduje
+        volající - obnova pokračuje s tím, co spojení ví, hledání cizích
+        příkazů se drží posledního známého stavu.
+        """
+        try:
+            await self.ib.reqAllOpenOrdersAsync()
+            return True
+        except Exception:
+            log.exception("Otevřené příkazy se nepodařilo z TWS načíst (%s).", kde)
+            return False
+
     async def app_trades(self) -> dict[str, Trade]:
         """
         Vrátí příkazy založené touto aplikací, klíčované značkou z orderRef.
@@ -515,10 +543,7 @@ class IBService:
         Načítají se i dokončené příkazy - podle vyplněného nákupu aplikace
         pozná, že jí patří otevřená pozice.
         """
-        try:
-            await self.ib.reqAllOpenOrdersAsync()
-        except Exception:
-            log.exception("Otevřené příkazy se nepodařilo z TWS načíst.")
+        await self._reload_open_orders("obnova příkazů aplikace")
         try:
             # apiOnly=False vrací i příkazy zadané ručně v TWS, filtruje se dál podle značky
             await self.ib.reqCompletedOrdersAsync(False)
@@ -536,6 +561,52 @@ class IBService:
                 continue
             nalezene[ref] = trade
         return nalezene
+
+    async def foreign_order_conids(self, refresh: bool = False) -> dict[int, str]:
+        """
+        Opční kontrakty, na kterých v TWS visí živý příkaz cizího původu.
+
+        Vrací conId kontraktu a popis pro hlášení. Za cizí se považuje každý
+        příkaz bez značky této aplikace v orderRef - tedy i příkaz druhé
+        aplikace připojené ke stejné TWS, i příkaz zadaný ručně v okně TWS.
+        Vlastní příkazy se vynechávají schválně: do svého kontraktu musí jít
+        dokupovat dál.
+
+        Dotaz reqAllOpenOrders vrací i příkazy ostatních klientů TWS. Měnit
+        ani rušit je nelze, ke zjištění obsazeného kontraktu ale stačí.
+        Výsledek platí FOREIGN_ORDERS_CACHE_SEC, protože příprava zadání
+        se volá po každé změně formuláře. Před zadáním příkazu do trhu se
+        volá s refresh=True, kde na čerstvosti záleží víc než na počtu dotazů.
+        """
+        loop = asyncio.get_running_loop()
+        if (
+            not refresh
+            and self._foreign_checked
+            and loop.time() - self._foreign_checked < FOREIGN_ORDERS_CACHE_SEC
+        ):
+            return dict(self._foreign_conids)
+
+        # Bez odpovědi se raději vrátí poslední známý stav než prázdno - jinak
+        # by výpadek dotazu tiše vypnul vyhýbání se cizím kontraktům
+        if not await self._reload_open_orders("hledání cizích příkazů"):
+            return dict(self._foreign_conids)
+
+        nalezene: dict[int, str] = {}
+        for trade in self.ib.trades():
+            contract = trade.contract
+            if contract is None or contract.secType != "OPT" or not contract.conId:
+                continue
+            # Vlastní příkazy pozná aplikace podle značky v orderRef
+            if parse_order_ref(trade.order.orderRef or "") is not None:
+                continue
+            # Vyplněný, zrušený ani zamítnutý příkaz už kontrakt neblokuje
+            if trade.orderStatus.status not in OrderStatus.ActiveStates:
+                continue
+            nalezene[contract.conId] = contract.localSymbol or contract.symbol
+
+        self._foreign_conids = nalezene
+        self._foreign_checked = loop.time()
+        return dict(nalezene)
 
     def _raw_fills(self) -> list[Fill]:
         """

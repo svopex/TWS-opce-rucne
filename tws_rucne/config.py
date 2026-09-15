@@ -96,6 +96,11 @@ class StrikeConfig:
     # Kolikátý strike za aktuální cenou se vybere při mode = otm_offset.
     # Počítá se v krocích rastru řetězce, takže platí pro každý ticker.
     otm_steps: int = 1
+    # Vyhnout se kontraktu, na kterém už visí cizí příkaz v TWS nebo drží
+    # neřízená pozice na účtu, a vybrat místo něj strike dál mimo peníze.
+    # Brání tomu, aby se pozice této aplikace v TWS sečetla s pozicí jiné
+    # aplikace na témže kontraktu - TWS je vede jako jedinou pozici.
+    avoid_occupied: bool = True
 
 
 @dataclass

@@ -50,6 +50,11 @@ MODIFIABLE_ORDER_STATES = ("PreSubmitted", "Submitted")
 # Kolik strike cen se nejvýš zkusí ověřit, než příprava vzdá hledání kontraktu
 MAX_STRIKE_ATTEMPTS = 8
 
+# O kolik kroků mimo peníze se nejvýš ustoupí, je-li vybraný kontrakt obsazený
+# cizím příkazem nebo neřízenou pozicí. Dál od peněz klesá delta, takže
+# ustupovat donekonečna nemá smysl - pak se kolize radši jen ohlásí.
+MAX_OCCUPIED_SHIFTS = 4
+
 # Jak dlouho se u dokončeného prodeje čeká na skutečnou průměrnou cenu z TWS,
 # než se pozice uzavře s odhadem podle limitní ceny
 FILL_PRICE_WAIT_SEC = 3.0
@@ -74,6 +79,9 @@ class Preview:
     delta: float | None = None
     min_tick: float = 0.01
     warnings: list[str] = field(default_factory=list)
+    # Conid kontraktu, o kterém náhled ví, že je obsazený, a přesto jej nabízí
+    # (volný strike se poblíž nenašel). Nákup pak kolizi nehlásí podruhé.
+    occupied_conid: int | None = None
     # Náhled drží vlastní odběry tržních dat, dokud jej nenahradí novější
     owns_subscription: bool = False
 
@@ -297,23 +305,22 @@ class ManualEngine:
 
             # Strike podle aktuální ceny podkladu - odsazený mimo peníze, nebo ATM
             kroky = self.cfg.strike.otm_steps if self.cfg.strike.mode == "otm_offset" else 0
-            cil = calc.otm_strike(list(retezec.strikes), preview.current_price, right, kroky)
+            strikes = list(retezec.strikes)
+            cil = calc.otm_strike(strikes, preview.current_price, right, kroky)
             if cil is None:
                 raise ValueError(f"Pro ticker {symbol} nejsou dostupné strike ceny.")
 
-            strike, option, detaily = await self._qualify_nearest_option(
-                symbol, expirace, list(retezec.strikes), cil, right, retezec.tradingClass
+            # Kontrakt obsazený cizím příkazem nebo neřízenou pozicí se přeskočí:
+            # TWS vede pozice po kontraktech, takže nákup téhož kontraktu by se
+            # s cizí pozicí sečetl v jedinou
+            obsazene = await self._occupied_conids()
+
+            strike, option, detaily = await self._qualify_free_option(
+                preview, strikes, cil, kroky, obsazene, retezec.tradingClass
             )
             preview.strike = strike
             preview.option = option
             preview.min_tick = detaily.minTick or 0.01
-
-            # Náhradní strike se hlásí, aby bylo jasné, proč kontrakt neodpovídá výběru
-            if strike != cil:
-                preview.warnings.append(
-                    f"Strike {cil:g} není pro expiraci {expirace} v TWS dostupný, "
-                    f"použit nejbližší obchodovatelný {strike:g}."
-                )
 
             # Kotace vybrané opce - z nich se počítají limitní ceny tlačítek
             self.ib.subscribe(option)
@@ -340,6 +347,85 @@ class ManualEngine:
             # Chyba i zrušení přípravy musí odběry vrátit zpět
             self._release_preview(preview)
             raise
+
+    async def _qualify_free_option(
+        self,
+        preview: Preview,
+        strikes: list[float],
+        cil: float,
+        kroky: int,
+        obsazene: dict[int, str],
+        trading_class: str,
+    ) -> tuple[float, Any, Any]:
+        """
+        Ověří opční kontrakt pro vybraný strike a vyhne se obsazeným.
+
+        Je-li vybraný kontrakt obsazený (cizí příkaz v TWS nebo neřízená
+        pozice na účtu), zkusí se strike o krok dál mimo peníze, pak další -
+        nejvýš MAX_OCCUPIED_SHIFTS kroků. Nenajde-li se volno ani tam, vrátí
+        se první volba a kolize se jen ohlásí: rozhodnutí patří obchodníkovi
+        stejně jako u širokého spreadu. Prázdný slovník obsazene vyhýbání
+        vypíná a výběr proběhne jako dřív.
+
+        Varování o náhradním i posunutém striku zapisuje metoda rovnou
+        do náhledu. Vrací trojici (strike, kontrakt, detaily).
+        """
+        # Volba podle konfigurace; teprve od ní se případně ustupuje
+        prvni = await self._qualify_nearest_option(
+            preview.symbol, preview.expiration, strikes, cil, preview.right, trading_class
+        )
+        prvni_strike, prvni_option, _ = prvni
+
+        # Náhradní strike se hlásí, aby bylo jasné, proč kontrakt neodpovídá výběru
+        if prvni_strike != cil:
+            preview.warnings.append(
+                f"Strike {cil:g} není pro expiraci {preview.expiration} v TWS "
+                f"dostupný, použit nejbližší obchodovatelný {prvni_strike:g}."
+            )
+
+        prvni_obsazeno = obsazene.get(prvni_option.conId)
+        if prvni_obsazeno is None:
+            return prvni
+
+        # Řetězec na kraji dojde a vrací pořád tentýž kontrakt - bez této
+        # paměti by se posouvání točilo naprázdno až do konce rozsahu
+        vyzkousene = {prvni_option.conId}
+
+        for posun in range(1, MAX_OCCUPIED_SHIFTS + 1):
+            # Ustupuje se dál mimo peníze, tedy stejným směrem, jakým
+            # odsazuje strike.otm_steps; režim atm začíná prvním OTM
+            cilovy = calc.otm_strike(
+                strikes, preview.current_price, preview.right, kroky + posun
+            )
+            if cilovy is None:
+                break
+
+            strike, option, detaily = await self._qualify_nearest_option(
+                preview.symbol, preview.expiration, strikes, cilovy, preview.right, trading_class
+            )
+            # Není-li posunutý strike v TWS obchodovatelný, vrátí hledání
+            # kandidáta blíž penězům, kterého už zkoušelo. Takový krok se
+            # přeskočí - dál od peněz ještě volno být může.
+            if option.conId in vyzkousene:
+                continue
+            vyzkousene.add(option.conId)
+
+            if option.conId not in obsazene:
+                preview.warnings.append(
+                    f"Strike {prvni_strike:g} už obsadil cizí příkaz nebo pozice "
+                    f"({prvni_obsazeno}) - vybrán {strike:g}."
+                )
+                return strike, option, detaily
+
+        # Volný kontrakt se nenašel. Nabídne se první volba, ale obchodník
+        # musí vědět, že se nákup v TWS sečte s cizí pozicí.
+        preview.occupied_conid = prvni_option.conId
+        preview.warnings.append(
+            f"POZOR: strike {prvni_strike:g} už obsadil cizí příkaz nebo pozice "
+            f"({prvni_obsazeno}) a volný strike se poblíž nenašel. Nákup se v TWS "
+            f"sečte s cizí pozicí - zkontrolujte ji před zadáním."
+        )
+        return prvni
 
     async def _qualify_nearest_option(
         self,
@@ -523,6 +609,23 @@ class ManualEngine:
             raise ValueError(
                 f"Kontrakt pro {symbol} se nepodařilo připravit - nákup nelze zadat."
             )
+
+        # Mezi přípravou náhledu a stiskem tlačítka mohl kontrakt obsadit cizí
+        # příkaz nebo pozice. Nákup by se v TWS s cizí pozicí sečetl, proto
+        # tento stisk do trhu nic neposílá a náhled se připraví znovu - v něm
+        # pak obchodník najde volný strike. Kontrakt, u kterého náhled kolizi
+        # ohlásil a obchodník jej přesto ponechal, se takto nezdržuje.
+        if preview.option.conId != preview.occupied_conid:
+            obsazene = await self._occupied_conids(refresh=True)
+            popis = obsazene.get(preview.option.conId)
+            if popis is not None:
+                puvodni = preview.contract_label
+                await self.prepare(symbol, right)
+                raise ValueError(
+                    f"Kontrakt {puvodni} mezitím obsadil cizí příkaz nebo pozice "
+                    f"({popis}) - nákup se nezadává. V náhledu je připravený nový "
+                    f"strike, zkontrolujte jej a stiskněte znovu."
+                )
 
         # Limitní cena se počítá z čerstvých kotací, ne z těch v náhledu
         self._read_quotes(preview)
@@ -1565,6 +1668,23 @@ class ManualEngine:
                 f"({popis}) a není je odkud odepsat - zkontrolujte pozice v TWS."
             )
 
+    def _unmanaged_positions(
+        self, drzene: dict[int, PositionInfo]
+    ) -> dict[int, PositionInfo]:
+        """
+        Vybere z držených pozic ty, které aplikace neřídí - tedy ty, na jejichž
+        kontraktu nesedí žádná její aktivní pozice.
+
+        Jediné místo, kde se "neřízená pozice" definuje: čte to jak upozornění
+        v rozhraní, tak vyhýbání se obsazeným kontraktům při výběru strike.
+        """
+        rizene = {
+            p.option_conid
+            for p in self.positions.values()
+            if p.state.is_active and p.option_conid
+        }
+        return {conid: info for conid, info in drzene.items() if conid not in rizene}
+
     def _warn_unmanaged(self, drzene: dict[int, PositionInfo]) -> None:
         """
         Zaznamená opční pozice na účtu, které aplikace neřídí.
@@ -1572,11 +1692,32 @@ class ManualEngine:
         Nastává, když se ztratí uložený stav nebo když se obchoduje ručně
         přímo v TWS. Aplikace k nim sama nic nezadává, jen na ně upozorní.
         """
-        rizene = {
-            p.option_conid
-            for p in self.positions.values()
-            if p.state.is_active and p.option_conid
-        }
-        self.unmanaged = {
-            conid: info for conid, info in drzene.items() if conid not in rizene
-        }
+        self.unmanaged = self._unmanaged_positions(drzene)
+
+    async def _occupied_conids(self, refresh: bool = False) -> dict[int, str]:
+        """
+        Opční kontrakty, na které si nárokuje místo někdo jiný.
+
+        Skládá se ze dvou zdrojů: živé příkazy v TWS bez značky této aplikace
+        (druhá aplikace u stejné TWS, nebo příkaz zadaný ručně v okně TWS)
+        a držené pozice, které aplikace neřídí. Vlastní příkazy ani vlastní
+        pozice se do výsledku nedostanou - do svého kontraktu musí jít
+        dokupovat dál.
+
+        Klíčem je conId, hodnotou popis kontraktu pro hlášení obchodníkovi.
+        Parametr refresh si vynutí čerstvý dotaz do TWS místo krátké paměti,
+        kterou si služba drží kvůli opakované přípravě zadání.
+        """
+        # Vypnuté vyhýbání se řeší tady, aby o konfiguraci nemusel vědět
+        # každý volající zvlášť; prázdný výsledek výběr striku neomezí
+        if not self.cfg.strike.avoid_occupied:
+            return {}
+
+        obsazene = await self.ib.foreign_order_conids(refresh)
+
+        # Neřízené pozice na účtu - tytéž, na které upozorňuje _warn_unmanaged.
+        # Čte se paměť spojení, kterou naplnila obnova po připojení; příkaz
+        # v TWS má přednost, protože nese čerstvější popis kontraktu.
+        for conid, info in self._unmanaged_positions(self.ib.known_positions()).items():
+            obsazene.setdefault(conid, info.label)
+        return obsazene

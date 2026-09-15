@@ -26,6 +26,7 @@ vzniká výhradně stiskem tlačítka.
 - [Přehled výsledků](#přehled-výsledků)
   - [Dlaždice Z účtu](#dlaždice-z-účtu)
 - [Výběr expirace a strike](#výběr-expirace-a-strike)
+  - [Vyhnutí se obsazenému kontraktu](#vyhnutí-se-obsazenému-kontraktu)
 - [Výsledek pozice](#výsledek-pozice)
 - [Konfigurace](#konfigurace)
 - [Obnova po restartu](#obnova-po-restartu)
@@ -339,6 +340,38 @@ strike nemusí být pro zvolenou expiraci obchodovatelný. Aplikace proto zkouš
 kandidáty podle vzdálenosti od cíle (nejvýš osm), dokud se některý v TWS
 neověří, a náhradu ohlásí v náhledu.
 
+### Vyhnutí se obsazenému kontraktu
+
+TWS vede pozice **po kontraktech, ne po aplikacích**. Nakoupí-li tato aplikace
+kontrakt, který zrovna obchoduje jiná (například automat u téže TWS), sečtou
+se obě pozice v jedinou a prodejní příkaz jedné aplikace odprodá kusy té
+druhé. Je-li `strike.avoid_occupied: true` (výchozí), příprava zadání se
+takovému kontraktu vyhne a vybere strike o krok dál mimo peníze.
+
+Za obsazený se kontrakt považuje, když:
+
+- v TWS na něj visí **živý příkaz bez značky této aplikace** - příkaz jiné
+  aplikace připojené ke stejné TWS, nebo příkaz zadaný ručně v okně TWS.
+  Zjišťuje se dotazem `reqAllOpenOrders`, který vrací i příkazy ostatních
+  klientů TWS; zachytí tedy i příkaz, který teprve čeká na cenovou podmínku
+  a pozice z něj ještě není,
+- nebo na něm účet drží **pozici, kterou aplikace neřídí** - tutéž, na jakou
+  upozorňuje pruh neřízených pozic.
+
+Vlastní příkazy ani vlastní pozice obsazení nezakládají, takže do svého
+kontraktu jde dokupovat dál. Ustoupí se nejvýš o čtyři kroky rastru - dál od
+peněz už delta klesá natolik, že kontrakt z pohybu podkladu vytěží málo.
+Nenajde-li se volno ani tam, nabídne se původní výběr a náhled na kolizi
+**upozorní**; nákup zůstává na obchodníkovi, stejně jako u širokého spreadu.
+
+Kontrola se opakuje ještě těsně před odesláním nákupu - kontrakt mohl někdo
+obsadit mezi přípravou náhledu a stiskem tlačítka. V takovém případě stisk do
+trhu nic nepošle, připraví se nový náhled s volným strikem a nákup se odmítne
+s vysvětlením.
+
+**Chrání to jen tuto aplikaci.** Druhá aplikace o ruční pozicích neví a může
+si strike vybrat bez ohledu na ně, takže kolize může vzniknout z její strany.
+
 ---
 
 ## Výsledek pozice
@@ -383,6 +416,7 @@ se mění:
 | `trading.outside_rth` | `true` = příkazy smí být vyplněny i mimo hlavní obchodní hodiny |
 | `trading.exchange_timezone`, `exchange_open_time`, `exchange_close_time` | hodiny burzy pro odpočet v hlavičce (obchodování neovlivňují) |
 | `strike.mode`, `strike.otm_steps` | jak se vybírá strike |
+| `strike.avoid_occupied` | `true` = vyhnout se kontraktu, který obsadil cizí příkaz nebo neřízená pozice |
 | `expiration.mode`, `expiration.min_dte` | jak se vybírá expirace |
 | `engine.market_data_timeout_sec`, `engine.quotes_grace_sec` | jak dlouho se při přípravě zadání čeká na ceny z TWS |
 | `engine.account_refresh_sec` | jak často se z TWS přebírá velikost účtu pro procenta v přehledu (0 = vypnuto) |
@@ -456,6 +490,8 @@ nikam nepřipojuje. **Testy se nikdy nepřipojí k běžící TWS.**
 
 - Aplikace hlídá jen příkazy, které sama zadala. Cokoliv zadaného ručně
   v TWS je mimo její dosah - upozorní na to pruhem s neřízenými pozicemi.
+- Vyhýbání se obsazenému kontraktu je jednostranné: druhá aplikace u téže TWS
+  o pozicích této aplikace neví a může si tentýž kontrakt vybrat sama.
 - Prodej je vždy limitní. Nevyplněný příkaz je potřeba přecenit nebo zrušit;
   tržní prodej aplikace nenabízí.
 - Souběžně může na jednom tickeru a směru čekat jen jeden nevyplněný nákupní

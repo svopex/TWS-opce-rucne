@@ -80,6 +80,15 @@ strike:
   # Počítá se v krocích rastru řetězce, takže jedno nastavení platí
   # pro každý ticker: 1 = první strike mimo peníze.
   otm_steps: 1
+  # Vyhnout se kontraktu, na kterém už visí cizí příkaz v TWS nebo drží
+  # neřízená pozice na účtu, a vybrat místo něj strike dál mimo peníze.
+  # TWS vede pozice po kontraktech, ne po aplikacích: nakoupí-li tato
+  # aplikace tentýž kontrakt, který obchoduje jiná, sečtou se v jedinou
+  # pozici a prodejní příkaz jedné aplikace odprodá kusy té druhé.
+  # Vlastní příkazy a vlastní pozice se nepočítají, dokupovat do svého
+  # kontraktu jde dál. Nenajde-li se volný strike, kontrakt se nabídne
+  # i tak a příprava zadání na kolizi jen upozorní.
+  avoid_occupied: true
 
 # --- Monitorovací smyčka ---
 engine:

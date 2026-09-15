@@ -1,9 +1,9 @@
 """
-Testy ukazatele kvality spojení - odezva TWS a stáří tržních dat.
+Testy služby TWS - ukazatel kvality spojení a hledání cizích příkazů.
 
-Ticker se plní ručně a spojení s TWS není potřeba; ověřuje se, že aplikace
-používá pole a metody ib_async správně a že hlavička hodnoty vypisuje tak,
-jak se od ní čekají.
+Ticker i příkazy se plní ručně a spojení s TWS není potřeba; ověřuje se, že
+aplikace používá pole a metody ib_async správně a že hlavička hodnoty
+vypisuje tak, jak se od ní čekají.
 """
 
 from __future__ import annotations
@@ -16,11 +16,110 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ib_async import Stock, Ticker
+from ib_async import Contract, Order, OrderStatus, Stock, Ticker, Trade
 
 from tws_rucne.config import AppConfig
-from tws_rucne.ib_service import IBService
+from tws_rucne.ib_service import IBService, order_ref
 from tws_rucne.ui import linka_varuje, stari_text, stav_linky_text
+
+
+class FalesneSpojeni:
+    """
+    Minimální náhrada ib_async.IB pro hledání cizích příkazů.
+
+    Vrací předem připravené příkazy a počítá dotazy do TWS, aby šlo ověřit
+    i krátkou paměť, kterou si služba drží mezi přípravami zadání. Selhani
+    zapne výjimku při dotazu - tím se zkouší chování při mlčící TWS.
+    """
+
+    def __init__(self, obchody: list[Trade]) -> None:
+        self._obchody = obchody
+        self.dotazu = 0
+        self.selhava = False
+
+    async def reqAllOpenOrdersAsync(self):
+        self.dotazu += 1
+        if self.selhava:
+            raise ConnectionError("TWS neodpovídá.")
+        return []
+
+    def trades(self) -> list[Trade]:
+        return list(self._obchody)
+
+
+def prikaz(
+    conid: int,
+    ref: str = "",
+    status: str = "Submitted",
+    sec_type: str = "OPT",
+) -> Trade:
+    """Sestaví záznam příkazu tak, jak jej vrací ib_async z TWS."""
+    kontrakt = Contract(
+        secType=sec_type,
+        conId=conid,
+        symbol="AAPL",
+        localSymbol=f"AAPL-{conid}",
+    )
+    order = Order(orderId=conid, orderRef=ref)
+    return Trade(
+        contract=kontrakt,
+        order=order,
+        orderStatus=OrderStatus(orderId=conid, status=status),
+        fills=[],
+        log=[],
+    )
+
+
+class TestCiziPrikazy(unittest.IsolatedAsyncioTestCase):
+    """Obsazené kontrakty se poznávají podle značky v orderRef a stavu příkazu."""
+
+    def sluzba_s(self, obchody: list[Trade]) -> IBService:
+        """Služba s podvrženým spojením místo skutečné TWS."""
+        sluzba = IBService(AppConfig())
+        sluzba.ib = FalesneSpojeni(obchody)
+        return sluzba
+
+    async def test_cizi_prikaz_obsazuje_kontrakt(self):
+        sluzba = self.sluzba_s([prikaz(800001, "TWSOPCE:NVDA-3:entry")])
+        self.assertEqual(await sluzba.foreign_order_conids(), {800001: "AAPL-800001"})
+
+    async def test_prikaz_zadany_rucne_v_tws_je_taky_cizi(self):
+        # Ruční příkaz z okna TWS nemá v orderRef nic, přesto kontrakt obsazuje
+        sluzba = self.sluzba_s([prikaz(800001)])
+        self.assertIn(800001, await sluzba.foreign_order_conids())
+
+    async def test_vlastni_prikaz_se_preskoci(self):
+        sluzba = self.sluzba_s([prikaz(800001, order_ref("AAPL-1", "buy"))])
+        self.assertEqual(await sluzba.foreign_order_conids(), {})
+
+    async def test_vyplneny_ani_zruseny_prikaz_kontrakt_neblokuje(self):
+        sluzba = self.sluzba_s(
+            [prikaz(800001, "cizi", status="Filled"), prikaz(800002, "cizi", status="Cancelled")]
+        )
+        self.assertEqual(await sluzba.foreign_order_conids(), {})
+
+    async def test_neopcni_kontrakt_se_preskoci(self):
+        sluzba = self.sluzba_s([prikaz(800001, "cizi", sec_type="STK")])
+        self.assertEqual(await sluzba.foreign_order_conids(), {})
+
+    async def test_opakovany_dotaz_bere_z_pameti(self):
+        sluzba = self.sluzba_s([prikaz(800001, "cizi")])
+        await sluzba.foreign_order_conids()
+        await sluzba.foreign_order_conids()
+        self.assertEqual(sluzba.ib.dotazu, 1)
+
+    async def test_refresh_si_vynuti_novy_dotaz(self):
+        sluzba = self.sluzba_s([prikaz(800001, "cizi")])
+        await sluzba.foreign_order_conids()
+        await sluzba.foreign_order_conids(refresh=True)
+        self.assertEqual(sluzba.ib.dotazu, 2)
+
+    async def test_mlcici_tws_nechava_posledni_znamy_stav(self):
+        # Prázdný výsledek by vyhýbání tiše vypnul, proto platí to, co se ví
+        sluzba = self.sluzba_s([prikaz(800001, "cizi")])
+        await sluzba.foreign_order_conids()
+        sluzba.ib.selhava = True
+        self.assertEqual(await sluzba.foreign_order_conids(refresh=True), {800001: "AAPL-800001"})
 
 
 def vloz_ticker(sluzba: IBService, conid: int = 265598, **hodnoty) -> Stock:

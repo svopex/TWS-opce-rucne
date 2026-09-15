@@ -61,6 +61,12 @@ class FakeIBService(IBService):
         self.held_positions: dict[int, float] = {}
         # Strike ceny, které řetězec nabízí, ale kontrakt pro ně v TWS neexistuje
         self.unavailable_strikes: set[float] = set()
+        # Conid opčního kontraktu podle strike. Co v mapě není, dostane
+        # OPTION_CONID - většina testů kontrakty rozlišovat nepotřebuje.
+        self.option_conids: dict[float, int] = {}
+        # Cizí příkazy v TWS podle conId kontraktu (conid -> popis) pro
+        # scénáře, kdy na kontraktu visí příkaz jiné aplikace
+        self.foreign_orders: dict[int, str] = {}
         # Počet odběratelů tržních dat podle conId - testy tak odhalí odběr,
         # který se po chybě nebo zrušení přípravy neuvolnil
         self.subscribed: dict[int, int] = {}
@@ -126,7 +132,7 @@ class FakeIBService(IBService):
                 f"Opční kontrakt {symbol} {expiration} {right} {strike:g} není v TWS dostupný."
             )
         opce = Option(symbol, expiration, strike, right, "SMART", currency="USD")
-        opce.conId = OPTION_CONID
+        opce.conId = self.option_conids.get(strike, OPTION_CONID)
         opce.multiplier = "100"
         detaily = ContractDetails(contract=opce, minTick=0.05)
         return opce, detaily
@@ -224,6 +230,10 @@ class FakeIBService(IBService):
     async def app_trades(self):
         """Příkazy označené značkou aplikace, klíčované podle orderRef."""
         return {t.order.orderRef: t for t in self.placed if t.order.orderRef}
+
+    async def foreign_order_conids(self, refresh: bool = False) -> dict[int, str]:
+        """Cizí příkazy nastavené testem - bez dotazu do TWS."""
+        return dict(self.foreign_orders)
 
     def _raw_fills(self) -> list[Fill]:
         """Vyplnění zaznamenaná testem místo těch, která by přišla z TWS."""

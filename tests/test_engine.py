@@ -66,6 +66,104 @@ class TestPripravaZadani(ZakladEnginu):
             await self.engine.prepare("AAPL", "C")
 
 
+class TestObsazenyStrike(ZakladEnginu):
+    """Kontrakt obsazený cizím příkazem nebo pozicí se při výběru přeskočí."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Rastr je po 2,5 bodu; při ceně 230 padne první strike mimo peníze
+        # u CALL na 232,5 a každý ústupek je o 2,5 bodu dál
+        self.ib.price_underlying = 230.0
+        self.ib.option_conids = {
+            232.5: 800001,
+            235.0: 800002,
+            237.5: 800003,
+            240.0: 800004,
+            242.5: 800005,
+        }
+
+    async def test_cizi_prikaz_posune_strike_dal_mimo_penize(self):
+        self.ib.foreign_orders = {800001: "AAPL 250103C00232500"}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 235.0)
+        self.assertTrue(any("už obsadil cizí příkaz" in v for v in nahled.warnings))
+
+    async def test_neridena_pozice_posune_strike(self):
+        self.ib.held_positions = {800001: 5}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 235.0)
+
+    async def test_obsazeno_vic_striku_za_sebou_ustoupi_dal(self):
+        self.ib.foreign_orders = {800001: "cizi", 800002: "cizi"}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 237.5)
+
+    async def test_nedostupny_posunuty_strike_hledani_neukonci(self):
+        # Pro 235,0 kontrakt v TWS není, takže ověření spadne zpátky na 232,5,
+        # který už se zkoušel. Hledání kvůli tomu nesmí skončit - o krok dál
+        # je 237,5 volné i dostupné.
+        self.ib.foreign_orders = {800001: "cizi"}
+        self.ib.unavailable_strikes = {235.0}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 237.5)
+        self.assertIsNone(nahled.occupied_conid)
+
+    async def test_cizi_prikaz_bez_popisu_kontrakt_obsazuje(self):
+        # TWS nemusí popis kontraktu poslat; prázdný popis ale neznamená volno
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        self.ib.foreign_orders = {800001: ""}
+        with self.assertRaises(ValueError) as chyba:
+            await self.engine.buy("AAPL", 3, "C", "ask")
+        self.assertIn("mezitím obsadil", str(chyba.exception))
+        self.assertEqual(self.ib.placed, [])
+
+    async def test_vlastni_pozice_strike_neobsazuje(self):
+        # Do svého kontraktu musí jít dokupovat dál, jinak by druhý nákup
+        # do téže pozice skončil na jiném striku
+        position = await self.nakup_vyplnen(quantity=3)
+        self.ib.held_positions = {position.option_conid: 3}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        self.assertEqual(nahled.warnings, [])
+
+    async def test_vypnute_vyhybani_nechava_puvodni_strike(self):
+        self.cfg.strike.avoid_occupied = False
+        self.ib.foreign_orders = {800001: "cizi"}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        self.assertEqual(nahled.warnings, [])
+
+    async def test_bez_volneho_striku_zustane_prvni_volba_s_varovanim(self):
+        self.ib.foreign_orders = {conid: "cizi" for conid in self.ib.option_conids.values()}
+        nahled = await self.engine.prepare("AAPL", "C")
+        # Nabídne se původní výběr, ale kolize musí být vidět
+        self.assertEqual(nahled.strike, 232.5)
+        self.assertTrue(nahled.ready)
+        self.assertEqual(nahled.occupied_conid, 800001)
+        self.assertTrue(any("volný strike se poblíž nenašel" in v for v in nahled.warnings))
+
+    async def test_nakup_odmitne_kontrakt_obsazeny_az_po_priprave(self):
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        # Cizí příkaz vznikl mezi přípravou náhledu a stiskem tlačítka
+        self.ib.foreign_orders = {800001: "cizi"}
+        with self.assertRaises(ValueError) as chyba:
+            await self.engine.buy("AAPL", 3, "C", "ask")
+        self.assertIn("mezitím obsadil", str(chyba.exception))
+        # Do trhu nesmělo nic odejít a náhled už nabízí volný strike
+        self.assertEqual(self.ib.placed, [])
+        self.assertEqual(self.engine.preview.strike, 235.0)
+
+    async def test_nakup_projde_kdyz_nahled_kolizi_uz_ohlasil(self):
+        self.ib.foreign_orders = {conid: "cizi" for conid in self.ib.option_conids.values()}
+        await self.engine.prepare("AAPL", "C")
+        # Náhled kolizi ohlásil a obchodník kontrakt ponechal - nákup projde
+        position = await self.engine.buy("AAPL", 3, "C", "ask")
+        self.assertEqual(position.strike, 232.5)
+        self.assertEqual(len(self.ib.placed), 1)
+
+
 class TestNakup(ZakladEnginu):
     """Nákupní tlačítka zadávají limitní příkaz podle kotace."""
 
