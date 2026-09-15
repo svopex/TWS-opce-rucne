@@ -18,6 +18,12 @@ SELL_SCOPE_ALL = "all"
 SELL_SCOPE_BASE = "base"
 SELL_SCOPE_ONE = "one"
 
+# Hranice v USD, pod kterou se výsledek prodeje hlásí jako vyrovnaný.
+# Zisk se na tlačítkách i v zápisu o příkazu zaokrouhluje na celé dolary,
+# takže menší částka by stejně vyšla jako nula - jen by ji znaménko vydávalo
+# za zisk nebo ztrátu.
+VYROVNANY_VYSLEDEK_USD = 0.5
+
 
 def contract_label(symbol: str, expiration: str, right: str, strike: float) -> str:
     """
@@ -559,13 +565,13 @@ def order_pnl_text(pnl: float | None) -> str:
     'zisk 12 USD' nebo 'ztráta 3 USD'.
 
     Znaménko nese slovo, ne číslo - ve větě se čte líp než '-3 USD'.
-    Zaokrouhluje se na celé dolary stejně jako na tlačítkách; hodnota pod
-    půl dolaru se hlásí jako vyrovnaná. Bez nákupní ceny není co počítat
-    a volající větu o výsledku neskládá.
+    Zaokrouhluje se na celé dolary stejně jako na tlačítkách, drobný rozdíl
+    se hlásí jako vyrovnaný (VYROVNANY_VYSLEDEK_USD). Bez nákupní ceny není
+    co počítat a volající větu o výsledku neskládá.
     """
     if pnl is None:
         return ""
-    if abs(pnl) < 0.5:
+    if abs(pnl) < VYROVNANY_VYSLEDEK_USD:
         return "bez zisku i ztráty"
     return f"{'zisk' if pnl > 0 else 'ztráta'} {cislo_text(abs(pnl), 0)} USD"
 
@@ -600,10 +606,11 @@ def sell_button_text(
     if limit is not None:
         casti.append(cislo_text(limit))
         # Zisk se zaokrouhluje na celé dolary - tlačítek stojí v řádku deset
-        # a centy by je jen prodloužily. Pod půl dolaru se píše '0 USD',
-        # ať se drobná ztráta netváří znaménkem jako zisk
+        # a centy by je jen prodloužily. Drobný rozdíl se píše jako '0 USD',
+        # ať se nepatrná ztráta netváří znaménkem jako zisk
         if pnl is not None:
             zaokrouhleny = f"{cislo_text(pnl, 0, znamenko=True)} USD"
-            casti.append("0 USD" if abs(pnl) < 0.5 else zaokrouhleny)
+            vyrovnany = abs(pnl) < VYROVNANY_VYSLEDEK_USD
+            casti.append("0 USD" if vyrovnany else zaokrouhleny)
 
     return " · ".join(casti)
