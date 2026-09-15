@@ -84,5 +84,53 @@ class TestRezervacnichSouboru(unittest.TestCase):
         self.assertIn("reserved_state_files", str(chyba.exception))
 
 
+class TestPrirazekNadAsk(unittest.TestCase):
+    """Přirážky prodejních tlačítek se ověřují jako seznam kladných procent."""
+
+    def _chyba(self, cfg: AppConfig) -> str:
+        """Spustí validaci a vrátí text vyhozené chyby."""
+        with self.assertRaises(ValueError) as chyba:
+            validate_config(cfg)
+        return str(chyba.exception)
+
+    def test_desetinne_prirazky_projdou(self):
+        cfg = AppConfig()
+        cfg.trading.ask_markups_pct = [0.5, 1.0, 1.5, 2.25]
+        validate_config(cfg)
+
+    def test_prazdny_seznam_prirazky_vypne(self):
+        cfg = AppConfig()
+        cfg.trading.ask_markups_pct = []
+        validate_config(cfg)
+
+    def test_jedine_cislo_misto_seznamu_neprojde(self):
+        cfg = AppConfig()
+        cfg.trading.ask_markups_pct = 1.0
+        self.assertIn("ask_markups_pct", self._chyba(cfg))
+
+    def test_zaporna_prirazka_neprojde(self):
+        # Prodej pod poptávanou cenou nabízí tlačítko BID, ne přirážka
+        cfg = AppConfig()
+        cfg.trading.ask_markups_pct = [1.0, -2.0]
+        self.assertIn("kladná", self._chyba(cfg))
+
+    def test_nula_neprojde(self):
+        # Nulová přirážka by jen zdvojila tlačítko ASK
+        cfg = AppConfig()
+        cfg.trading.ask_markups_pct = [0.0]
+        self.assertIn("kladná", self._chyba(cfg))
+
+    def test_text_misto_cisla_neprojde(self):
+        cfg = AppConfig()
+        cfg.trading.ask_markups_pct = ["1 %"]
+        self.assertIn("čísla", self._chyba(cfg))
+
+    def test_pravdivostni_hodnota_neprojde(self):
+        # true je v Pythonu podtyp int a jinak by prošlo jako 1 %
+        cfg = AppConfig()
+        cfg.trading.ask_markups_pct = [True]
+        self.assertIn("čísla", self._chyba(cfg))
+
+
 if __name__ == "__main__":
     unittest.main()

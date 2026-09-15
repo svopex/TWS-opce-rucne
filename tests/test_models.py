@@ -14,7 +14,9 @@ from tws_rucne.models import (
     SELL_SCOPE_ONE,
     Position,
     PositionState,
+    button_pnl_text,
     buy_button_label,
+    sell_button_text,
     pnl_text,
     price_kind_label,
     sell_button_label,
@@ -200,9 +202,10 @@ class TestPopiskyTlacitek(unittest.TestCase):
         self.assertEqual(len(vse), len(runner))
 
     def test_popisek_prirazky_nad_poptavkou(self):
-        # U přirážek se počet nepíše - v řádku je jasný z tlačítek vedle
-        self.assertEqual(sell_button_label("ask", 3, 1.0), "ASK +1 %")
-        self.assertEqual(sell_button_label("ask", 2, 5.0), "ASK +5 %")
+        # U přirážek se nepíše ani počet kusů, ani procenta - v řádku je počet
+        # jasný z tlačítek vedle a o kolik jde, říká cena a zisk za popiskem
+        self.assertEqual(sell_button_label("ask", 3, 1.0), "ASK")
+        self.assertEqual(sell_button_label("ask", 2, 5.0), "ASK")
 
     def test_popis_ceny(self):
         self.assertEqual(price_kind_label("ask"), "ASK")
@@ -216,6 +219,62 @@ class TestPopiskyTlacitek(unittest.TestCase):
         # Stejně jako výpočty limitních cen, ne holým KeyError
         with self.assertRaises(ValueError):
             price_kind_label("lmt")
+
+
+class TestVysledkuNaTlacitku(unittest.TestCase):
+    """Místo procent nese tlačítko zisk nebo ztrátu, kterou prodej přinese."""
+
+    def _pozice(self) -> Position:
+        """Otevřená pozice se třemi nakoupenými kontrakty za 2.23."""
+        p = Position(id="NVDA-1", symbol="NVDA", quantity=3)
+        p.filled_quantity = 3
+        p.fill_price = 2.23
+        return p
+
+    def test_zisk_za_prodavane_mnozstvi(self):
+        # Kontrakt kryje 100 kusů podkladu: (2.30 - 2.23) * 100 * 2 = 14 USD
+        self.assertAlmostEqual(self._pozice().sell_pnl_at(2.30, 2), 14.0)
+
+    def test_ztrata_pod_nakupni_cenou(self):
+        self.assertAlmostEqual(self._pozice().sell_pnl_at(2.20, 1), -3.0)
+
+    def test_bez_nakupni_ceny_neni_co_pocitat(self):
+        # Nevyplněný nákup ještě cenu nemá
+        self.assertIsNone(Position(id="NVDA-2").sell_pnl_at(2.30, 1))
+
+    def test_bez_kotace_neni_co_pocitat(self):
+        self.assertIsNone(self._pozice().sell_pnl_at(None, 1))
+
+    def test_popisek_vysledku(self):
+        self.assertEqual(button_pnl_text(14.0), "+14 USD")
+        self.assertEqual(button_pnl_text(-3.0), "-3 USD")
+
+    def test_drobny_vysledek_se_pise_jako_nula(self):
+        # Znaménko u dvaceti centů by se pletlo se skutečným ziskem
+        self.assertEqual(button_pnl_text(0.2), "0 USD")
+        self.assertEqual(button_pnl_text(-0.2), "0 USD")
+
+    def test_chybejici_vysledek_do_popisku_nepatri(self):
+        self.assertEqual(button_pnl_text(None), "")
+
+    def test_cely_popisek_tlacitka(self):
+        # Prodej tří kusů za BID 3.10 při nákupu za 3.00
+        self.assertEqual(
+            sell_button_text("bid", 3, 0.0, 3.10, 30.0), "BID (3 ks) · 3.10 · +30 USD"
+        )
+
+    def test_cely_popisek_tlacitka_s_prirazkou(self):
+        # Místo procent nese tlačítko cenu a zisk, počet kusů se nepíše
+        self.assertEqual(
+            sell_button_text("ask", 2, 3.0, 3.30, 60.0), "ASK · 3.30 · +60 USD"
+        )
+
+    def test_popisek_bez_kotace_zustane_u_druhu_ceny(self):
+        # Bez ceny se nedá zadat příkaz ani spočítat výsledek
+        self.assertEqual(sell_button_text("mid", 1, 0.0, None, None), "MID (1 ks)")
+
+    def test_popisek_bez_nakupni_ceny_nese_jen_cenu(self):
+        self.assertEqual(sell_button_text("ask", 1, 0.0, 3.20, None), "ASK (1 ks) · 3.20")
 
 
 if __name__ == "__main__":

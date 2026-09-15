@@ -160,8 +160,9 @@ z konfigurace, nebo když vybraný strike není pro danou expiraci
 obchodovatelný a použil se nejbližší dostupný.
 
 Pod formulářem stojí karta **Nastavení** s podstatnými hodnotami
-z konfigurace (expirace, strike, runner, limit spreadu, tolerance a platnost
-příkazů), aby bylo na první pohled vidět, podle čeho se kontrakt vybírá.
+z konfigurace (expirace, strike, runner, limit spreadu, tolerance, přirážky
+nad ASK a platnost příkazů), aby bylo na první pohled vidět, podle čeho se
+kontrakt vybírá a co nabízejí prodejní tlačítka.
 
 ### Nákup
 
@@ -176,16 +177,25 @@ Na tlačítku je vždy vidět cena, se kterou příkaz do trhu půjde - napřík
 ### Prodej a runner
 
 Po vyplnění nákupu nabídne karta pozice tři řádky tlačítek, které se liší
-jen množstvím - u pozice se třemi kontrakty a runnerem 1 ks vypadají takto:
+jen množstvím. U pozice se třemi kontrakty nakoupenými za 3.00, runnerem 1 ks
+a kotací BID 3.10 / ASK 3.20 vypadají takto:
 
 ```
-BID (3 ks)  MID (3 ks)  ASK (3 ks)  ASK +1 %  ASK +2 %  ASK +3 %  ASK +4 %  ASK +5 %  ASK +7 %  ASK +9 %
-BID (2 ks)  MID (2 ks)  ASK (2 ks)  ASK +1 %  ASK +2 %  ASK +3 %  ASK +4 %  ASK +5 %  ASK +7 %  ASK +9 %
-BID (1 ks)  MID (1 ks)  ASK (1 ks)  ASK +1 %  ASK +2 %  ASK +3 %  ASK +4 %  ASK +5 %  ASK +7 %  ASK +9 %
+BID (3 ks) · 3.10 · +30 USD   MID (3 ks) · 3.15 · +45 USD   ASK (3 ks) · 3.20 · +60 USD   ASK · 3.23 · +69 USD   ASK · 3.26 · +78 USD   …
+BID (2 ks) · 3.10 · +20 USD   MID (2 ks) · 3.15 · +30 USD   ASK (2 ks) · 3.20 · +40 USD   ASK · 3.23 · +46 USD   ASK · 3.26 · +52 USD   …
+BID (1 ks) · 3.10 · +10 USD   MID (1 ks) · 3.15 · +15 USD   ASK (1 ks) · 3.20 · +20 USD   ASK · 3.23 · +23 USD   ASK · 3.26 · +26 USD   …
 ```
 
-U přirážek se počet kusů na tlačítku nepíše - je zřejmý z tlačítek vedle
-a popisek by byl zbytečně dlouhý.
+Na každém tlačítku stojí **limitní cena** a za ní **zisk nebo ztráta**, kterou
+prodej za tuto cenu přinese - tedy rozdíl proti nákupní ceně krát sto krát
+počet prodávaných kusů, zaokrouhlený na celé dolary. Provize se do něj
+nepočítají: prodejní se dopředu nezná, takže číslo vychází čistě z cen,
+stejně jako limit vedle něj. Výsledek celé pozice včetně provizí zůstává
+v řádku údajů nad tlačítky (`P/L`).
+
+U přirážek se na tlačítko nepíše ani počet kusů, ani procenta - počet je
+zřejmý z tlačítek vedle a o kolik nad ASK přirážka míří, říká cena a zisk.
+Nastavené odstupy ukazuje karta **Nastavení** pod formulářem.
 
 Nabídka jde zleva doprava od nejjistějšího vyplnění k nejvyšší ceně: na BID
 se prodá hned a zaplatí se celý spread, na MID se čeká na střed trhu, na ASK
@@ -199,20 +209,31 @@ se spread naopak inkasuje a přirážky míří ještě výš.
 
 Všechny řádky mají stejně široké sloupce, takže tlačítka téhož druhu leží
 přesně nad sebou; co které udělá, říká barva a pořadí řádku. Popisek začíná
-cenou a končí částkou, se kterou příkaz skutečně půjde do trhu.
+druhem ceny a pokračuje částkou, se kterou příkaz skutečně půjde do trhu.
 
 Řádek se nezobrazí, pokud by dělal totéž co jiný: u pozice o jednom kontraktu
 zbude jen ten první a prodej po kusech se nenabízí ani tehdy, když základní
 pozice vychází právě na jeden kus.
 
-**Přirážky nad poptávkou** (`ASK +1 %` až `+5 %`, dál `+7 %` a `+9 %`) zadají
-prodej nad ASK: za kontrakt přijde víc peněz, ale příkaz se vyplní s menší
-pravděpodobností. Pozor u kontraktů s hrubým rastrem - je-li tik 0,05
-a ASK 3,20, vyjde +1 % i +2 % na stejnou cenu 3,25. Skutečná cena je proto
-vždy napsaná na tlačítku.
+**Přirážky nad poptávkou** zadají prodej nad ASK: za kontrakt přijde víc
+peněz, ale příkaz se vyplní s menší pravděpodobností. Pozor u kontraktů
+s hrubým rastrem - je-li tik 0,05 a ASK 3,20, vyjde +1 % i +2 % na stejnou
+cenu 3,25. Skutečná cena i zisk jsou proto vždy napsané na tlačítku.
 
-Nabídku přirážek určuje `ASK_MARKUPS` v `tws_rucne/models.py`; řádek se
-sloupci přizpůsobí sám, žádné další místo se kvůli tomu nepřepisuje.
+Nabídku přirážek určuje `trading.ask_markups_pct` v konfiguraci - seznam
+procent, ve kterém jsou povolena i desetinná místa:
+
+```yaml
+trading:
+  # Výchozí nabídka: sedm tlačítek nad ASK
+  ask_markups_pct: [1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0]
+  # Jemnější rozestup po půl procentu
+  # ask_markups_pct: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+```
+
+Každá hodnota přidá do řádku jedno tlačítko a pořadí v seznamu je pořadím
+tlačítek zleva doprava; prázdný seznam přirážky vypne. Řádek se sloupci
+přizpůsobí sám, žádné další místo se kvůli tomu nepřepisuje.
 
 Základní pozice je držené množství snížené o runner (`trading.runner_quantity`,
 ve výchozím nastavení 1 kontrakt). Po jejím prodeji zbývá v pozici jen runner
@@ -487,6 +508,7 @@ se mění:
 | `trading.runner_quantity` | kolik kontraktů zůstane jako runner |
 | `trading.default_quantity`, `trading.default_right` | co je předvyplněné ve formuláři |
 | `trading.ask_tolerance_pct`, `trading.bid_tolerance_pct` | o kolik procent smí limit přesáhnout ASK, resp. podlézt BID (0 = přesně na kotaci) |
+| `trading.ask_markups_pct` | seznam přirážek nad ASK v procentech (i desetinných) - každá přidá jedno prodejní tlačítko |
 | `trading.max_spread_pct` | nad kolik procent spreadu rozhraní upozorní (nákup nezakazuje) |
 | `trading.tif` | `DAY` = do konce obchodního dne, `GTC` = do zrušení |
 | `trading.outside_rth` | `true` = příkazy smí být vyplněny i mimo hlavní obchodní hodiny |

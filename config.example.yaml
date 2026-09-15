@@ -46,6 +46,16 @@ trading:
   ask_tolerance_pct: 0.0
   # Tolerance pod BID v procentech pro prodej "za BID"
   bid_tolerance_pct: 0.0
+
+  # Přirážky nad poptávanou cenou v procentech - povolena jsou i desetinná
+  # místa (0.5 = půl procenta). Každá hodnota přidá do řádku u pozice jedno
+  # prodejní tlačítko, které prodává nad ASK: za kontrakt přijde víc peněz,
+  # ale příkaz se vyplní s menší pravděpodobností. Pořadí v seznamu je
+  # pořadím tlačítek zleva doprava, prázdný seznam přirážky vypne.
+  # Procenta se na tlačítka nepíšou - je na nich limitní cena a zisk či
+  # ztráta, kterou prodej za ni přinese; nastavené odstupy ukazuje karta
+  # Nastavení pod formulářem.
+  ask_markups_pct: [1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0]
   # Spread, nad kterým rozhraní upozorní, že se obchod prodraží.
   # Nákup se nezakazuje - o zadání rozhoduje obchodník.
   max_spread_pct: 7.0

@@ -20,6 +20,10 @@ STRIKE_MODES = ("otm_offset", "atm")
 # Povolené typy opce, které lze ve formuláři zvolit
 RIGHTS = ("C", "P")
 
+# Výchozí přirážky nad poptávanou cenou v procentech - z každé vzniká jedno
+# prodejní tlačítko. Platí, dokud je config nepřepíše (trading.ask_markups_pct).
+DEFAULT_ASK_MARKUPS_PCT = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0)
+
 
 @dataclass
 class ConnectionConfig:
@@ -61,6 +65,12 @@ class TradingConfig:
     ask_tolerance_pct: float = 0.0
     # Tolerance pod BID v procentech pro prodej "za BID"
     bid_tolerance_pct: float = 0.0
+    # Přirážky nad poptávanou cenou v procentech (i desetinná místa).
+    # Každá hodnota přidá do řádku jedno prodejní tlačítko, které prodává
+    # nad ASK; pořadí v seznamu je pořadím tlačítek zleva doprava.
+    ask_markups_pct: list[float] = field(
+        default_factory=lambda: list(DEFAULT_ASK_MARKUPS_PCT)
+    )
     # Spread, nad kterým rozhraní upozorní, že se obchod nevyplácí.
     # Nákup se ale nezakazuje - o zadání rozhoduje obchodník.
     max_spread_pct: float = 7.0
@@ -288,6 +298,24 @@ def validate_config(cfg: AppConfig) -> None:
         problemy.append("trading.max_quantity nesmí být menší než trading.min_quantity")
     if cfg.trading.ask_tolerance_pct < 0 or cfg.trading.bid_tolerance_pct < 0:
         problemy.append("tolerance nad ASK ani pod BID nesmí být záporná")
+
+    # Přirážky nad poptávkou: jediné číslo místo seznamu nebo záporná hodnota
+    # by se jinak projevily až rozsypaným řádkem tlačítek, případně prodejním
+    # příkazem pod poptávanou cenou
+    if not isinstance(cfg.trading.ask_markups_pct, list):
+        problemy.append("trading.ask_markups_pct musí být seznam procent")
+    else:
+        for hodnota in cfg.trading.ask_markups_pct:
+            # bool je v Pythonu podtyp int - 'true' v YAML by jinak prošlo jako 1 %
+            if isinstance(hodnota, bool) or not isinstance(hodnota, (int, float)):
+                problemy.append(
+                    f"trading.ask_markups_pct smí obsahovat jen čísla, nalezeno '{hodnota}'"
+                )
+            elif hodnota <= 0:
+                problemy.append(
+                    f"trading.ask_markups_pct smí obsahovat jen kladná procenta, "
+                    f"nalezeno {hodnota}"
+                )
     if cfg.trading.tif not in ("DAY", "GTC"):
         problemy.append(f"trading.tif musí být DAY nebo GTC, nalezeno '{cfg.trading.tif}'")
 

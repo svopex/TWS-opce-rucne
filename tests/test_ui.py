@@ -17,9 +17,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tws_rucne import calc
+from tws_rucne.config import AppConfig
 from tws_rucne.engine import ManualEngine
-from tws_rucne.models import ASK_MARKUPS, SELL_SCOPE_BASE
+from tws_rucne.models import SELL_SCOPE_BASE
 from tws_rucne.ui import TradingUI, format_countdown
+
+# Přirážky nabízené tlačítky - stejné hodnoty, jaké vezme rozhraní z konfigurace
+ASK_MARKUPS = AppConfig().trading.ask_markups_pct
 
 
 class TestObsluhaTlacitek(unittest.TestCase):

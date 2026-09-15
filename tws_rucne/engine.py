@@ -540,7 +540,7 @@ class ManualEngine:
         """
         Limitní cena prodeje pro dané tlačítko podle aktuálních kotací pozice.
         markup_pct je přirážka nad zvolenou cenou (tlačítka s přirážkou nad
-        ASK, viz ASK_MARKUPS v models.py).
+        ASK, nabídku určuje trading.ask_markups_pct v konfiguraci).
         """
         cena = calc.sell_limit_price(
             kind,

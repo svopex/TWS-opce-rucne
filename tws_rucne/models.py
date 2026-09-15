@@ -18,10 +18,6 @@ SELL_SCOPE_ALL = "all"
 SELL_SCOPE_BASE = "base"
 SELL_SCOPE_ONE = "one"
 
-# Přirážky k poptávané ceně nabízené prodejními tlačítky (v procentech).
-# Prodej nad ASK vynese víc, ale vyplní se s menší pravděpodobností.
-ASK_MARKUPS = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0)
-
 
 def contract_label(symbol: str, expiration: str, right: str, strike: float) -> str:
     """
@@ -436,6 +432,17 @@ class Position:
             return None
         return hruby - self.open_commission
 
+    def sell_pnl_at(self, price: float | None, quantity: int) -> float | None:
+        """
+        Hrubý výsledek prodeje daného množství za zadanou cenu v USD - tedy
+        co obchodník na tlačítku vydělá nebo ztratí oproti nákupní ceně.
+
+        Provize se nezapočítávají: prodejní se dopředu nezná a nákupní by
+        číslo posunula jen o zlomek, takže výsledek vychází čistě z cen -
+        stejně jako limitní cena napsaná na témže tlačítku.
+        """
+        return calc.position_pnl(self.fill_price, price, quantity)
+
     @property
     def avg_sell_price(self) -> float | None:
         """Průměrná cena, za kterou prodané kontrakty odešly."""
@@ -548,15 +555,59 @@ def buy_button_label(kind: str, quantity: int) -> str:
 
 def sell_button_label(kind: str, quantity: int, markup_pct: float = 0.0) -> str:
     """
-    Popisek prodejního tlačítka - cena a počet kusů, které odejdou.
+    Popisek prodejního tlačítka - druh ceny a počet kusů, které odejdou.
 
     Tvar je v obou řádcích stejný ('BID (3 ks)' nad 'BID (1 ks)'), takže
     tlačítka stejného druhu stojí ve sloupcích nad sebou. Který řádek prodává
     celou pozici a který nechává runner, říká barva a bublina s nápovědou.
-    U přirážek nad poptávkou se počet nepíše - popisek by byl zbytečně
-    dlouhý a v řádku je jasný z tlačítek vedle.
+
+    U přirážek nad poptávkou zůstává jen 'ASK' bez procent i bez počtu kusů:
+    o kolik jde, je vidět z limitní ceny a zisku dopsaných za popisek,
+    a množství je jasné z tlačítek vedle. V zápisu do průběhu obchodu
+    procenta zůstávají - tam je cena bez nich nedohledatelná.
     """
-    cena = price_kind_label(kind, markup_pct)
+    nazev = price_kind_label(kind)
     if markup_pct:
-        return cena
-    return f"{cena} ({quantity} ks)"
+        return nazev
+    return f"{nazev} ({quantity} ks)"
+
+
+def button_pnl_text(pnl: float | None) -> str:
+    """
+    Zisk nebo ztráta na prodejním tlačítku, například '+2 USD'.
+
+    Zaokrouhluje se na celé dolary - tlačítek stojí v řádku deset a centy by
+    je jen prodloužily. Hodnota pod půl dolaru se píše jako '0 USD', ať se
+    drobná ztráta netváří znaménkem jako zisk; chybějící údaj (pozice bez
+    nákupní ceny nebo bez kotace) vrací prázdný řetězec a volající jej
+    do popisku nedává.
+    """
+    if pnl is None:
+        return ""
+    if abs(pnl) < 0.5:
+        return "0 USD"
+    return f"{cislo_text(pnl, 0, znamenko=True)} USD"
+
+
+def sell_button_text(
+    kind: str,
+    quantity: int,
+    markup_pct: float,
+    limit: float | None,
+    pnl: float | None,
+) -> str:
+    """
+    Celý popisek prodejního tlačítka: druh ceny, limitní cena a výsledek
+    prodeje - například 'BID (3 ks) · 3.10 · +30 USD'.
+
+    Bez použitelné kotace chybí cena a tlačítko se stejně nedá stisknout;
+    bez nákupní ceny chybí výsledek. Taková část se do popisku prostě nedá,
+    aby na tlačítku nesvítila pomlčka.
+    """
+    casti = [sell_button_label(kind, quantity, markup_pct)]
+    if limit is not None:
+        casti.append(cislo_text(limit))
+        vysledek = button_pnl_text(pnl)
+        if vysledek:
+            casti.append(vysledek)
+    return " · ".join(casti)

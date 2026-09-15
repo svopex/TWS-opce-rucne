@@ -15,14 +15,13 @@ from .engine import ManualEngine, Preview
 from .ib_service import IBService
 from .report_dialog import ReportDialog
 from .models import (
-    ASK_MARKUPS,
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
     SELL_SCOPE_ONE,
     Position,
     buy_button_label,
     pnl_text,
-    sell_button_label,
+    sell_button_text,
     ukoncene_pozice_text,
 )
 
@@ -224,14 +223,16 @@ class PositionCard:
         Vykreslí řádek prodejních tlačítek pro daný rozsah pozice.
 
         Nabídka jde od nejjistějšího vyplnění k nejvyšší ceně: BID, MID, ASK
-        a nad ním přirážky nad poptávkou podle ASK_MARKUPS. Čím výš, tím víc za kontrakt
-        přijde, ale tím menší je šance, že se příkaz vyplní. Vrací čtveřice
-        (tlačítko, nápověda, druh ceny, přirážka), ze kterých se při každém
-        překreslení obnovují popisky i ceny.
+        a nad ním přirážky nad poptávkou z konfigurace (trading.ask_markups_pct).
+        Čím výš, tím víc za kontrakt přijde, ale tím menší je šance, že se
+        příkaz vyplní. Vrací trojice (tlačítko, druh ceny, přirážka), ze kterých
+        se při každém překreslení obnovují popisky i ceny.
         """
         tlacitka: list[tuple[Any, Any, str, float]] = []
         varianty = [("bid", 0.0), ("mid", 0.0), ("ask", 0.0)]
-        varianty += [("ask", p) for p in ASK_MARKUPS]
+        # Kolik tlačítek s přirážkou vznikne, určuje délka seznamu v konfiguraci;
+        # mřížka řádku si sloupce dopočítá sama
+        varianty += [("ask", p) for p in self.parent.cfg.trading.ask_markups_pct]
 
         for kind, markup in varianty:
             # Plnou barvou je jen první tlačítko, ostatní jsou obtažená -
@@ -312,9 +313,17 @@ class PositionCard:
                 if not dostupne:
                     continue
                 limit = engine.position_sell_limit(position, kind, markup)
-                popisek = sell_button_label(kind, mnozstvi, markup)
-                # Bez kotace se cena zobrazit nedá a příkaz by stejně neprošel
-                tlacitko.set_text(popisek if limit is None else f"{popisek} · {fmt(limit)}")
+                # Na tlačítku stojí druh ceny, limitní cena a zisk či ztráta,
+                # kterou prodej tohoto množství za tuto cenu přinese
+                tlacitko.set_text(
+                    sell_button_text(
+                        kind,
+                        mnozstvi,
+                        markup,
+                        limit,
+                        position.sell_pnl_at(limit, mnozstvi),
+                    )
+                )
                 tlacitko.set_enabled(limit is not None)
 
         self.btn_zrusit.set_visibility(position.can_cancel)
@@ -661,7 +670,7 @@ class TradingUI:
         že pozice měla prodejní příkaz v trhu a stisk jej má jen přecenit.
         Vyplnil-li se mezitím, engine akci odmítne a nic se neprodá znovu.
         markup_pct je přirážka nad zvolenou cenou (tlačítka s přirážkou nad
-        ASK, viz ASK_MARKUPS v models.py).
+        ASK, nabídku určuje trading.ask_markups_pct v konfiguraci).
         """
         if not self._zamek():
             return
@@ -975,12 +984,21 @@ class TradingUI:
         else:
             obsazene = "nepřeskakují se"
 
+        # Přirážky nad ASK: na tlačítkách je místo procent zisk, takže odstupy
+        # jednotlivých tlačítek by jinak v rozhraní nebyly vidět
+        prirazky = (
+            " | ".join(f"+{p:g} %" for p in t.ask_markups_pct)
+            if t.ask_markups_pct
+            else "nenabízejí se"
+        )
+
         self.config_label.set_text(
             f"Expirace: {expirace}\n"
             f"Strike: {strike}\n"
             f"Obsazené strike: {obsazene}\n"
             f"Runner: {t.runner_quantity} ks | max. spread {t.max_spread_pct:g} %\n"
             f"Tolerance: ASK +{t.ask_tolerance_pct:g} % | BID -{t.bid_tolerance_pct:g} %\n"
+            f"Přirážky nad ASK: {prirazky}\n"
             f"Platnost příkazů: {t.tif}"
         )
 
