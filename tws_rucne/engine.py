@@ -61,6 +61,12 @@ MAX_OCCUPIED_SHIFTS = 4
 # než se pozice uzavře s odhadem podle limitní ceny
 FILL_PRICE_WAIT_SEC = 3.0
 
+# Přenos nevyplněného nákupu na jiný strike: jak dlouho se nejvýš čeká, než
+# TWS potvrdí zrušení původního příkazu, a jak často se stav mezitím přebírá.
+# Bez potvrzení se nový příkaz nezadává - v trhu by mohly viset oba.
+TRANSFER_CANCEL_WAIT_SEC = 3.0
+TRANSFER_POLL_SEC = 0.2
+
 
 @dataclass
 class Preview:
@@ -81,9 +87,6 @@ class Preview:
     delta: float | None = None
     min_tick: float = 0.01
     warnings: list[str] = field(default_factory=list)
-    # Conid kontraktu, o kterém náhled ví, že je obsazený, a přesto jej nabízí
-    # (volný strike se poblíž nenašel). Nákup pak kolizi nehlásí podruhé.
-    occupied_conid: int | None = None
     # Náhled drží vlastní odběry tržních dat, dokud jej nenahradí novější
     owns_subscription: bool = False
 
@@ -426,8 +429,8 @@ class ManualEngine:
                 return strike, option, detaily
 
         # Volný kontrakt se nenašel. Nabídne se první volba, ale obchodník
-        # musí vědět, že se nákup v TWS sečte s cizí pozicí.
-        preview.occupied_conid = prvni_option.conId
+        # musí vědět, že se nákup v TWS sečte s cizí pozicí. Stisk tlačítka
+        # projde: příprava vrátí tentýž kontrakt, takže se nabídka nezměnila.
         preview.warnings.append(
             f"POZOR: strike {prvni_strike:g} už obsadil {prvni_obsazeno} "
             f"a volný strike se poblíž nenašel. Nákup se v TWS sečte s cizí "
@@ -586,6 +589,20 @@ class ManualEngine:
         # právě dorazilo, se tak projeví dřív, než by vznikl další příkaz
         self._refresh_orders()
 
+        # Čerstvá obsazenost jednou za stisk: příprava si ji vezme z krátké
+        # paměti a kontrola nabídky z téhož slovníku, takže do TWS jde
+        # jediný dotaz, ne dva krátce po sobě
+        obsazene = await self._occupied_conids(refresh=True)
+
+        # Nabídka se mohla mezi vykreslením tlačítka a stiskem změnit - strike
+        # se mohl obsadit i uvolnit. Zadání se proto připraví znovu.
+        videny = self.shown_preview(symbol, right)
+        preview = await self.prepare(symbol, right)
+        if not preview.ready:
+            raise ValueError(
+                f"Kontrakt pro {symbol} se nepodařilo připravit - nákup nelze zadat."
+            )
+
         if reprice_id:
             cekajici = self.position(reprice_id)
             if cekajici.state != PositionState.BUYING:
@@ -593,6 +610,13 @@ class ManualEngine:
                     f"Nákupní příkaz pozice {reprice_id} už v trhu není "
                     f"({cekajici.state.label}) - druhý nákup se nezadává."
                 )
+
+            # Náhled mezitím mohl nabídnout jiný kontrakt - typicky když se
+            # uvolnil strike, kterému se při zadání ustoupilo. Přecenění
+            # kontraktem nehne, mění jen cenu, proto se příkaz přenese.
+            preview = self.transfer_preview(cekajici)
+            if preview is not None:
+                return await self._transfer_buy(cekajici, quantity, kind, preview)
             return await self.reprice_buy(reprice_id, kind, quantity)
 
         cekajici = self.pending_buy(symbol, right)
@@ -603,37 +627,23 @@ class ManualEngine:
                 f"u pozice, nebo jej nejdřív zrušte."
             )
 
-        # Náhled musí odpovídat formuláři; jinak se zadání připraví znovu,
-        # aby se nekupoval kontrakt vybraný pro jiný ticker nebo směr
-        preview = self._preview
-        if (
-            preview is None
-            or not preview.ready
-            or preview.symbol != symbol
-            or preview.right != right
-        ):
-            preview = await self.prepare(symbol, right)
-        if not preview.ready:
-            raise ValueError(
-                f"Kontrakt pro {symbol} se nepodařilo připravit - nákup nelze zadat."
+        # Nabízí-li příprava jiný kontrakt, než jaký měl obchodník na obrazovce,
+        # do trhu nejde nic: v náhledu zůstane ten nový a rozhoduje druhý stisk.
+        # Čekající příkaz se sem nedostane - ten se rovnou přepíše (viz výše).
+        if videny is not None and preview.option.conId != videny.option.conId:
+            # Proč se nabídka změnila, řekne obsazenost: kolize je pro
+            # obchodníka jiná zpráva než posun striku za pohybem podkladu
+            popis = obsazene.get(videny.option.conId)
+            duvod = (
+                f"Kontrakt {videny.contract_label} mezitím obsadil {popis}"
+                if popis is not None
+                else f"Nabídka se změnila: místo {videny.contract_label} "
+                f"je připravený {preview.contract_label}"
             )
-
-        # Mezi přípravou náhledu a stiskem tlačítka mohl kontrakt obsadit cizí
-        # příkaz nebo pozice. Nákup by se v TWS s cizí pozicí sečetl, proto
-        # tento stisk do trhu nic neposílá a náhled se připraví znovu - v něm
-        # pak obchodník najde volný strike. Kontrakt, u kterého náhled kolizi
-        # ohlásil a obchodník jej přesto ponechal, se takto nezdržuje.
-        if preview.option.conId != preview.occupied_conid:
-            obsazene = await self._occupied_conids(refresh=True)
-            popis = obsazene.get(preview.option.conId)
-            if popis is not None:
-                puvodni = preview.contract_label
-                await self.prepare(symbol, right)
-                raise ValueError(
-                    f"Kontrakt {puvodni} mezitím obsadil {popis} - nákup se "
-                    f"nezadává. V náhledu je připravený nový strike, "
-                    f"zkontrolujte jej a stiskněte znovu."
-                )
+            raise ValueError(
+                f"{duvod} - nákup se nezadává. V náhledu je připravený "
+                f"{preview.contract_label}, zkontrolujte jej a stiskněte znovu."
+            )
 
         # Limitní cena se počítá z čerstvých kotací, ne z těch v náhledu
         self._read_quotes(preview)
@@ -648,25 +658,17 @@ class ManualEngine:
             symbol=symbol,
             right=right,
             quantity=quantity,
-            expiration=preview.expiration,
-            strike=preview.strike or 0.0,
-            option_conid=preview.option.conId,
-            underlying_conid=preview.underlying.conId,
-            min_tick=preview.min_tick,
             runner_quantity=trading.runner_quantity,
             buy_kind=kind,
             buy_limit=limit,
-            option_contract=preview.option,
-            underlying_contract=preview.underlying,
-            option_bid=preview.option_bid,
-            option_ask=preview.option_ask,
-            delta=preview.delta,
-            underlying_price=preview.current_price,
         )
+        position.apply_preview(preview)
         # Pozice si drží vlastní odběr dat, nezávisle na osudu náhledu
         self._subscribe(position)
 
-        order = self.ib.build_buy_order(quantity, limit, order_ref(position.id, "buy"))
+        order = self.ib.build_buy_order(
+            quantity, limit, order_ref(position.id, position.buy_ref_kind)
+        )
         position.buy_trade = self.ib.place(position.option_contract, order)
         position.set_state(
             PositionState.BUYING,
@@ -691,6 +693,36 @@ class ManualEngine:
                 if position.right == right:
                     return position
         return None
+
+    def shown_preview(self, symbol: str, right: str) -> Preview | None:
+        """
+        Náhled, podle kterého se obchodník rozhodoval, když mačkal tlačítko.
+
+        Slouží k porovnání s tím, co vybere příprava při stisku. Náhled
+        patřící jinému tickeru nebo směru se nepočítá - o tom, co je teď
+        na obrazovce, nevypovídá.
+        """
+        preview = self._preview
+        if preview is None or not preview.ready:
+            return None
+        if preview.symbol != symbol or preview.right != right:
+            return None
+        return preview
+
+    def transfer_preview(self, position: Position) -> Preview | None:
+        """
+        Náhled míří na jiný kontrakt, než na kterém visí nevyplněný příkaz.
+
+        Vrací připravený náhled, pokud se příkaz má přenést, a None, když se
+        má jen přecenit - tedy chybí-li náhled, patří-li jinému tickeru nebo
+        směru, nebo míří-li na tentýž kontrakt. Jediné místo, kde se mezi
+        přecenění a přenosem rozhoduje: ptá se odsud stisk tlačítka i
+        rozhraní, které podle toho ukazuje cenu a nápovědu.
+        """
+        preview = self.shown_preview(position.symbol, position.right)
+        if preview is None or preview.option.conId == position.option_conid:
+            return None
+        return preview
 
     async def reprice_buy(
         self, position_id: str, kind: str, quantity: int | None = None
@@ -904,7 +936,7 @@ class ManualEngine:
         position.settle_wait_since = None
 
         order = self.ib.build_sell_order(
-            mnozstvi, limit, order_ref(position.id, f"sell{position.sell_seq}")
+            mnozstvi, limit, order_ref(position.id, position.sell_ref_kind)
         )
         position.sell_trade = self.ib.place(position.option_contract, order)
 
@@ -973,6 +1005,95 @@ class ManualEngine:
             f"Prodejní příkaz přeceněn: {quantity} ks za LMT {cislo_text(limit)} "
             f"({price_kind_label(kind, markup_pct)}){prodano}{popis_zbytku}."
         )
+        self.log_event(f"{position.id}: {position.message}")
+        self._persist()
+        return position
+
+    async def _transfer_buy(
+        self, position: Position, quantity: int, kind: str, preview: Preview
+    ) -> Position:
+        """
+        Přepíše nevyplněný nákup na kontrakt, který právě nabízí náhled.
+
+        Strike se u zadaného příkazu měnit nedá, proto se v TWS příkaz zruší
+        a zadá znovu. V přehledu ale zůstává táž pozice - jen změní kontrakt,
+        takže se obchod neroztrhne na zrušenou a novou kartu.
+
+        Nový příkaz odchází teprve po potvrzení zrušení z TWS: jinak by v trhu
+        mohly viset oba naráz. Vyplní-li se ten původní dřív, pozice zůstane
+        na svém kontraktu a nepřepisuje se.
+        """
+        if position.buy_trade is None:
+            raise ValueError(
+                f"Pozice {position.id} nemá v trhu nákupní příkaz - "
+                f"na {preview.contract_label} se nepřepisuje."
+            )
+
+        puvodni = position.contract_label
+        novy = preview.contract_label
+
+        # Limit se počítá z čerstvých kotací ještě před zrušením - bez ceny
+        # by se pozice ocitla bez příkazu a nový by nebylo z čeho zadat
+        self._read_quotes(preview)
+        limit = self.preview_buy_limit(kind)
+        if limit is None:
+            raise ValueError(
+                f"Z TWS nedorazila kotace {novy} - příkaz na {puvodni} zůstává "
+                f"beze změny."
+            )
+
+        # Po dobu přepisu se zrušení nevyhodnocuje jako konec pozice; kdyby
+        # mezitím tikla monitorovací smyčka, uzavřela by ji
+        position.transferring = True
+        try:
+            self.ib.cancel(position.buy_trade)
+            position.touch(f"Ruší se nákupní příkaz, strike se přepisuje na {novy}.")
+            self.log_event(f"{position.id}: {position.message}")
+
+            # Stav se čte před každým čekáním, takže potvrzené zrušení
+            # nezdrží ani o jedno kolo
+            status = position.buy_trade.orderStatus
+            for _ in range(int(TRANSFER_CANCEL_WAIT_SEC / TRANSFER_POLL_SEC)):
+                if status.filled >= 1 or status.status in DEAD_ORDER_STATES:
+                    break
+                await asyncio.sleep(TRANSFER_POLL_SEC)
+
+            if status.filled >= 1:
+                raise ValueError(
+                    f"Příkaz se mezitím vyplnil - pozice drží {puvodni} a na "
+                    f"{novy} se nepřepisuje."
+                )
+            if status.status not in DEAD_ORDER_STATES:
+                raise ValueError(
+                    f"TWS zrušení příkazu nepotvrdila - pozice zůstává na "
+                    f"{puvodni}. Zkuste to za chvíli znovu."
+                )
+
+            # Odsud dál se pozice jen přepisuje na nový kontrakt a hned dostane
+            # svůj příkaz; mezi tím se nečeká, aby nezůstala bez příkazu
+            self._release(position)
+            position.apply_preview(preview)
+            position.quantity = quantity
+            position.buy_kind = kind
+            position.buy_limit = limit
+            # Nový příkaz musí mít vlastní značku, jinak by obnova po restartu
+            # našla pod toutéž značkou i ten zrušený
+            position.buy_seq += 1
+            self._subscribe(position)
+
+            order = self.ib.build_buy_order(
+                quantity, limit, order_ref(position.id, position.buy_ref_kind)
+            )
+            position.buy_trade = self.ib.place(position.option_contract, order)
+            position.set_state(
+                PositionState.BUYING,
+                f"Strike přepsán z {puvodni} na {novy}: nákupní příkaz v trhu, "
+                f"{quantity} ks za LMT {cislo_text(limit)} "
+                f"({price_kind_label(kind)}).",
+            )
+        finally:
+            position.transferring = False
+
         self.log_event(f"{position.id}: {position.message}")
         self._persist()
         return position
@@ -1244,6 +1365,11 @@ class ManualEngine:
         """Sleduje nákupní příkaz - vyplnění, částečné vyplnění i zrušení."""
         trade = position.buy_trade
         if trade is None:
+            return False
+
+        # Přepis na jiný strike zrušený příkaz vzápětí nahradí novým; kdyby se
+        # zrušení vyhodnotilo teď, pozice by se uzavřela uprostřed přepisu
+        if position.transferring:
             return False
 
         status = trade.orderStatus
@@ -1524,9 +1650,9 @@ class ManualEngine:
         position.subscribed = False
         self._subscribe(position)
 
-        position.buy_trade = prikazy.get(order_ref(position.id, "buy"))
+        position.buy_trade = prikazy.get(order_ref(position.id, position.buy_ref_kind))
         position.sell_trade = (
-            prikazy.get(order_ref(position.id, f"sell{position.sell_seq}"))
+            prikazy.get(order_ref(position.id, position.sell_ref_kind))
             if position.sell_seq
             else None
         )

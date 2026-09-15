@@ -145,6 +145,9 @@ zóny nebo v zápisu času aplikace ohlásí hned při startu.
 Kontrakt se hledá po opuštění pole s tickerem, po stisku Enter a po
 přepnutí CALL / PUT, aby se do TWS neposílal dotaz po každém napsaném
 znaku; změna množství jen přepočítá odhad nákladů a popisky tlačítek.
+**Stisk už vybraného směru** (CALL na CALL, PUT na PUT) zadání připraví
+znovu - hodí se, když kontrakt mezitím obsadil někdo jiný a strike se má
+vybrat podle aktuálního stavu.
 Během dotazu do TWS svítí hláška `Načítám data z TWS…`. Náhled ukazuje:
 
 - vybraný kontrakt a počet dní do expirace,
@@ -195,7 +198,7 @@ se spread naopak inkasuje a přirážky míří ještě výš.
 | třetí | tyrkysová | jediný kontrakt - pro odprodávání po kusech |
 
 Všechny řádky mají stejně široké sloupce, takže tlačítka téhož druhu leží
-přesně nad sebou; co které udělá, řekne bublina s nápovědou. Popisek začíná
+přesně nad sebou; co které udělá, říká barva a pořadí řádku. Popisek začíná
 cenou a končí částkou, se kterou příkaz skutečně půjde do trhu.
 
 Řádek se nezobrazí, pokud by dělal totéž co jiný: u pozice o jednom kontraktu
@@ -237,7 +240,7 @@ na aktuální cenu (v TWS jde o modifikaci příkazu se stejným `orderId`).
   tlačítko. Přejít lze i mezi řádky - z prodeje základní pozice na prodej
   všeho a zpět; příkaz se jen upraví, druhý nevzniká.
 - Tlačítka přitom vypadají stejně jako při novém příkazu. Že jde o přecenění,
-  řekne bublina s nápovědou a hláška pozice, která vypisuje, co v trhu leží.
+  řekne hláška pozice, která vypisuje, co v trhu leží.
 - Přecenění mění i **množství**: přepsáním pole ve formuláři a novým stiskem
   se upraví počet kontraktů nákupního příkazu.
 - **Částečně vyplněný příkaz se přecenit dá** - upraví se limit zbývajícího
@@ -249,6 +252,44 @@ na aktuální cenu (v TWS jde o modifikaci příkazu se stejným `orderId`).
 - Přecenit lze jen příkaz, který v TWS čeká (stav `PreSubmitted` nebo
   `Submitted`). Příkaz, který se právě vyplňuje nebo ruší, aplikace
   odmítne upravit a nic do trhu neposílá.
+
+#### Kontrola nabídky při stisku nákupu
+
+Stisk nákupního tlačítka zadání nejdřív **připraví znovu** - mezi vykreslením
+tlačítka a stiskem se strike mohl obsadit i uvolnit. Nabídne-li příprava jiný
+kontrakt, než jaký byl na obrazovce, **do trhu nejde nic**: v náhledu zůstane
+ten nový a rozhoduje až druhý stisk.
+
+- Je-li důvodem kolize, hláška ji pojmenuje - *„Kontrakt AAPL 20260916 CALL
+  332.50 mezitím obsadil cizí příkaz …"*.
+- Jinak se jen ohlásí posun nabídky - *„Nabídka se změnila: místo … je
+  připravený …"*.
+- Platí to pro **nový nákup**. Čeká-li na tickeru nevyplněný příkaz, stisk
+  se nezdržuje a příkaz se rovnou **přepíše** na nově vybraný strike (viz
+  níže) - v trhu by jinak zůstal viset příkaz na kontraktu, který už neplatí.
+- Kontrakt, u kterého náhled kolizi ohlásil a obchodník jej přesto ponechal,
+  se takto nezdržuje - příprava vrátí tentýž kontrakt a nákup projde.
+
+#### Přepis pozice na jiný strike
+
+Přecenění mění cenu, ne kontrakt - strike zadaného příkazu v TWS upravit nelze.
+Nabízí-li náhled **jiný kontrakt**, než na kterém nevyplněný příkaz visí
+(typicky když se uvolní strike, kterému se při zadání ustoupilo kvůli
+obsazení), stisk tlačítka ve formuláři pozici **přepíše**: v TWS se příkaz
+zruší a zadá znovu na novém striku, ale **v přehledu zůstává táž pozice** -
+jen změní kontrakt. Druhá karta ani zrušený záznam nevznikají.
+
+- Na tlačítku svítí cena **nového** kontraktu; ze kterého striku na který se
+  pozice přepsala, vypíše hláška pozice i panel průběhu.
+- Nový příkaz odchází teprve **po potvrzení zrušení z TWS**. Nepřijde-li
+  do tří sekund, pozice zůstane na původním striku a aplikace vyzve
+  k opakování - v trhu nesmí viset oba příkazy naráz.
+- Vyplní-li se původní příkaz dřív, než zrušení dojde, pozice zůstane na svém
+  kontraktu a nepřepisuje se; aplikace to ohlásí.
+- Chybí-li kotace nového kontraktu, nezruší se ani ten původní příkaz -
+  pozice by jinak zůstala bez příkazu v trhu.
+- Každý přepis dává novému příkazu vlastní značku (`buy`, `buy2`, ...), takže
+  obnova po restartu pozici spáruje s tím živým, ne se zrušeným.
 
 Tlačítkem **Zrušit příkaz v trhu** lze příkaz kdykoliv stáhnout; skutečné
 zrušení potvrdí až TWS a teprve pak se změní stav pozice.

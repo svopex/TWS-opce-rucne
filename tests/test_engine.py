@@ -100,7 +100,6 @@ class TestObsazenyStrike(ZakladEnginu):
         self.ib.unavailable_strikes = {235.0}
         nahled = await self.engine.prepare("AAPL", "C")
         self.assertEqual(nahled.strike, 237.5)
-        self.assertIsNone(nahled.occupied_conid)
 
     async def test_cizi_prikaz_bez_popisu_kontrakt_obsazuje(self):
         # TWS nemusí popis kontraktu poslat; prázdný popis ale neznamená volno
@@ -134,7 +133,7 @@ class TestObsazenyStrike(ZakladEnginu):
         # Nabídne se původní výběr, ale kolize musí být vidět
         self.assertEqual(nahled.strike, 232.5)
         self.assertTrue(nahled.ready)
-        self.assertEqual(nahled.occupied_conid, 800001)
+        self.assertEqual(nahled.option.conId, 800001)
         self.assertTrue(any("volný strike se poblíž nenašel" in v for v in nahled.warnings))
 
     async def test_nakup_odmitne_kontrakt_obsazeny_az_po_priprave(self):
@@ -215,6 +214,150 @@ class TestZamluvenyStrikeJinouAplikaci(ZakladEnginu):
         self.assertIn("mezitím obsadil", str(chyba.exception))
         self.assertEqual(self.ib.placed, [])
         self.assertEqual(self.engine.preview.strike, 235.0)
+
+
+class TestZmenyNabidkyPredNakupem(ZakladEnginu):
+    """Stisk nákupního tlačítka zadání přepočítá a změnu nabídky ohlásí."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.nastav_rastr_striku()
+
+    async def test_uvolneny_strike_nakup_zastavi(self):
+        # Obchodník má na obrazovce 235, protože 232,5 držel cizí příkaz
+        self.ib.foreign_orders = {800001: "cizi"}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 235.0)
+        # Cizí příkaz mezitím zmizel
+        self.ib.foreign_orders = {}
+
+        with self.assertRaises(ValueError) as chyba:
+            await self.engine.buy("AAPL", 1, "C", "ask")
+
+        self.assertIn("Nabídka se změnila", str(chyba.exception))
+        # Do trhu nesmí odejít nic a v náhledu čeká uvolněný strike
+        self.assertEqual(self.ib.placed, [])
+        self.assertEqual(self.engine.preview.strike, 232.5)
+
+    async def test_druhy_stisk_uz_koupi_novy_strike(self):
+        self.ib.foreign_orders = {800001: "cizi"}
+        await self.engine.prepare("AAPL", "C")
+        self.ib.foreign_orders = {}
+        with self.assertRaises(ValueError):
+            await self.engine.buy("AAPL", 1, "C", "ask")
+
+        position = await self.engine.buy("AAPL", 1, "C", "ask")
+
+        self.assertEqual(position.strike, 232.5)
+        self.assertEqual(len(self.ib.placed), 1)
+
+    async def test_nezmenena_nabidka_koupi_hned(self):
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+
+        position = await self.engine.buy("AAPL", 1, "C", "ask")
+
+        self.assertEqual(position.strike, 232.5)
+        self.assertEqual(len(self.ib.placed), 1)
+
+
+class TestPrenosuNaJinyStrike(ZakladEnginu):
+    """Uvolní-li se strike, stisk tlačítka přenese příkaz na něj."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.nastav_rastr_striku()
+
+    async def nakup_na_obsazenem(self):
+        """Zadá nákup ve chvíli, kdy je první strike obsazený cizím příkazem."""
+        self.ib.foreign_orders = {800001: "cizi"}
+        nahled = await self.engine.prepare("AAPL", "C")
+        # Kontraktu 232,5 se ustoupilo, příkaz jde na 235
+        self.assertEqual(nahled.strike, 235.0)
+        return await self.engine.buy("AAPL", 1, "C", "ask")
+
+    async def test_uvolneny_strike_prepise_pozici(self):
+        position = await self.nakup_na_obsazenem()
+        puvodni_prikaz = position.buy_trade
+        # Cizí příkaz zmizel a náhled nabízí zpátky 232,5
+        self.ib.foreign_orders = {}
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+
+        prepsana = await self.engine.buy("AAPL", 1, "C", "ask", reprice_id=position.id)
+
+        # Táž pozice jen změnila kontrakt - druhá karta v přehledu nevzniká
+        self.assertIs(prepsana, position)
+        self.assertEqual(len(self.engine.positions), 1)
+        self.assertEqual(position.strike, 232.5)
+        self.assertEqual(position.option_conid, 800001)
+        self.assertEqual(position.state, PositionState.BUYING)
+        # Původní příkaz musí z trhu zmizet dřív, než vznikne nový
+        self.assertEqual(self.ib.cancelled, [puvodni_prikaz])
+        self.assertEqual(len(self.ib.placed), 2)
+        self.assertIs(position.buy_trade, self.ib.placed[-1])
+
+    async def test_zmena_nabidky_prikaz_prepise_bez_upozorneni(self):
+        # Obchodník má na obrazovce pořád 235; přepočet při stisku najde
+        # uvolněný strike a příkaz se má rovnou přepsat, ne zastavit
+        position = await self.nakup_na_obsazenem()
+        self.ib.foreign_orders = {}
+
+        prepsana = await self.engine.buy("AAPL", 1, "C", "ask", reprice_id=position.id)
+
+        self.assertIs(prepsana, position)
+        self.assertEqual(position.strike, 232.5)
+        self.assertEqual(position.state, PositionState.BUYING)
+        self.assertEqual(len(self.engine.positions), 1)
+
+    async def test_prepsany_prikaz_dostane_vlastni_znacku(self):
+        # Pod značkou zrušeného příkazu by obnova po restartu našla oba
+        position = await self.nakup_na_obsazenem()
+        self.ib.foreign_orders = {}
+        await self.engine.prepare("AAPL", "C")
+
+        await self.engine.buy("AAPL", 1, "C", "ask", reprice_id=position.id)
+
+        znacky = [t.order.orderRef for t in self.ib.placed]
+        self.assertEqual(znacky, [f"TWSRUCNE:{position.id}:buy", f"TWSRUCNE:{position.id}:buy2"])
+
+    async def test_prepis_prezije_tik_monitoringu(self):
+        # Zrušení uprostřed přepisu nesmí pozici uzavřít
+        position = await self.nakup_na_obsazenem()
+        self.ib.foreign_orders = {}
+        await self.engine.prepare("AAPL", "C")
+
+        await self.engine.buy("AAPL", 1, "C", "ask", reprice_id=position.id)
+        await self.tik()
+
+        self.assertEqual(position.state, PositionState.BUYING)
+        self.assertEqual(position.strike, 232.5)
+
+    async def test_stejny_kontrakt_se_dal_jen_preceni(self):
+        position = await self.nakup_na_obsazenem()
+        # Náhled nabízí tentýž kontrakt, na kterém příkaz visí
+        self.ib.quote_bid, self.ib.quote_ask = 3.50, 3.70
+        await self.engine.prepare("AAPL", "C")
+
+        nova = await self.engine.buy("AAPL", 1, "C", "ask", reprice_id=position.id)
+
+        self.assertIs(nova, position)
+        self.assertEqual(self.ib.cancelled, [])
+        self.assertEqual(len(self.ib.placed), 1)
+
+    async def test_mezitim_vyplneny_prikaz_se_neprepisuje(self):
+        position = await self.nakup_na_obsazenem()
+        self.ib.foreign_orders = {}
+        await self.engine.prepare("AAPL", "C")
+        # Příkaz se vyplnil dřív, než obchodník stiskl tlačítko
+        self.ib.fill(position.buy_trade, 1, 3.20)
+
+        with self.assertRaises(ValueError) as chyba:
+            await self.engine.buy("AAPL", 1, "C", "ask", reprice_id=position.id)
+
+        self.assertIn("už v trhu není", str(chyba.exception))
+        self.assertEqual(self.ib.cancelled, [])
+        self.assertEqual(len(self.ib.placed), 1)
 
 
 class TestNakup(ZakladEnginu):

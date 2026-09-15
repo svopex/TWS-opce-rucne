@@ -106,6 +106,8 @@ class IBService:
         self._quotes_grace_done: set[int] = set()
         self._connect_lock = asyncio.Lock()
         self._chain_cache: dict[str, Any] = {}
+        # Ověřené akciové kontrakty podle tickeru - viz qualify_stock
+        self._stock_cache: dict[str, Contract] = {}
         # Naposledy zjištěné cizí příkazy a čas jejich zjištění -
         # viz foreign_order_conids a FOREIGN_ORDERS_CACHE_SEC
         self._foreign_conids: dict[int, str] = {}
@@ -286,11 +288,23 @@ class IBService:
     # ------------------------------------------------------------------
 
     async def qualify_stock(self, symbol: str) -> Contract:
-        """Doplní identifikátory akciového kontraktu podle tickeru."""
-        akcie = Stock(symbol.upper().strip(), self.cfg.trading.exchange, self.cfg.trading.currency)
+        """
+        Doplní identifikátory akciového kontraktu podle tickeru.
+
+        Výsledek se kešuje jako opční řetězec: podklad se za běh aplikace
+        nemění a příprava zadání se volá po každé změně formuláře i před
+        každým nákupem, takže by se jinak platil dotaz do TWS pokaždé.
+        """
+        klic = symbol.upper().strip()
+        v_pameti = self._stock_cache.get(klic)
+        if v_pameti is not None:
+            return v_pameti
+
+        akcie = Stock(klic, self.cfg.trading.exchange, self.cfg.trading.currency)
         overene = await self.ib.qualifyContractsAsync(akcie)
         if not overene or overene[0] is None:
             raise ValueError(f"Ticker '{symbol}' se nepodařilo najít v TWS.")
+        self._stock_cache[klic] = overene[0]
         return overene[0]
 
     async def option_chain(self, underlying: Contract) -> Any:

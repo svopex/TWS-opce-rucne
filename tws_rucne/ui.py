@@ -22,10 +22,8 @@ from .models import (
     Position,
     buy_button_label,
     pnl_text,
-    price_kind_label,
     sell_button_label,
     ukoncene_pozice_text,
-    zbytek_text,
 )
 
 log = logging.getLogger(__name__)
@@ -189,8 +187,6 @@ class PositionCard:
                     self.kotace_spread = ui.label()
                 self.podklad = ui.label().classes("udaj")
                 self.vysledek = ui.label().classes("udaj udaj-vysledek")
-                with self.vysledek:
-                    self.tip_vysledek = ui.tooltip("")
 
             self.hlaska = ui.label().classes("hlaska-pozice")
 
@@ -202,13 +198,9 @@ class PositionCard:
                 self.btn_nakup_ask = ui.button(
                     on_click=lambda: self.parent.reprice_buy(self.position_id, "ask")
                 ).props("dense color=primary")
-                with self.btn_nakup_ask:
-                    self.tip_nakup_ask = ui.tooltip("")
                 self.btn_nakup_mid = ui.button(
                     on_click=lambda: self.parent.reprice_buy(self.position_id, "mid")
                 ).props("dense outline color=primary")
-                with self.btn_nakup_mid:
-                    self.tip_nakup_mid = ui.tooltip("")
 
             # Oba řádky prodeje stojí v mřížce se stejně širokými sloupci,
             # takže tlačítka stejného druhu leží přesně nad sebou. Proto je to
@@ -252,9 +244,7 @@ class PositionCard:
                     self.position_id, k, scope, self.sell_reprice, m
                 )
             ).props(f"{vzhled} color={barva}")
-            with tlacitko:
-                napoveda = ui.tooltip("")
-            tlacitka.append((tlacitko, napoveda, kind, markup))
+            tlacitka.append((tlacitko, kind, markup))
 
         return tlacitka
 
@@ -285,17 +275,6 @@ class PositionCard:
         )
         vysledek = position.open_pnl_net if position.pnl_split else position.net_pnl
         self.vysledek.classes(replace=f"udaj udaj-vysledek {pnl_class(vysledek)}")
-        if position.pnl_split:
-            self.tip_vysledek.set_text(
-                f"Výsledek drženého zbytku ({position.open_quantity} ks) po nákupní "
-                f"provizi; v závorce celá pozice včetně {position.sold_quantity} "
-                f"už prodaných ks a všech provizí."
-            )
-        else:
-            self.tip_vysledek.set_text(
-                "Výsledek pozice po provizích; držené kontrakty jsou oceněné "
-                "středem trhu."
-            )
 
         self.hlaska.set_text(position.message)
         self.hlaska.set_visibility(bool(position.message))
@@ -314,10 +293,7 @@ class PositionCard:
         self.sell_reprice = position.sell_pending
 
         # Nevyplněný nákup lze přecenit; jinak nákupní tlačítka na kartě nejsou
-        for tlacitko, napoveda, kind in (
-            (self.btn_nakup_ask, self.tip_nakup_ask, "ask"),
-            (self.btn_nakup_mid, self.tip_nakup_mid, "mid"),
-        ):
+        for tlacitko, kind in ((self.btn_nakup_ask, "ask"), (self.btn_nakup_mid, "mid")):
             tlacitko.set_visibility(position.can_reprice_buy)
             if not position.can_reprice_buy:
                 continue
@@ -325,17 +301,13 @@ class PositionCard:
             popisek = buy_button_label(kind, position.quantity)
             tlacitko.set_text(popisek if limit is None else f"{popisek} · {fmt(limit)}")
             tlacitko.set_enabled(limit is not None)
-            napoveda.set_text(
-                f"Přecení nevyplněný nákupní příkaz na aktuální "
-                f"{price_kind_label(kind)}; druhý příkaz nevzniká."
-            )
 
         for seznam, scope, mnozstvi, dostupne in (
             (self.btn_vse, SELL_SCOPE_ALL, position.open_quantity, position.can_sell_all),
             (self.btn_zaklad, SELL_SCOPE_BASE, position.base_quantity, position.can_sell_base),
             (self.btn_kus, SELL_SCOPE_ONE, 1, position.can_sell_one),
         ):
-            for tlacitko, napoveda, kind, markup in seznam:
+            for tlacitko, kind, markup in seznam:
                 tlacitko.set_visibility(dostupne)
                 if not dostupne:
                     continue
@@ -344,15 +316,6 @@ class PositionCard:
                 # Bez kotace se cena zobrazit nedá a příkaz by stejně neprošel
                 tlacitko.set_text(popisek if limit is None else f"{popisek} · {fmt(limit)}")
                 tlacitko.set_enabled(limit is not None)
-
-                # Popisek je kvůli délce úsporný, nápověda proto říká, co
-                # tlačítko udělá a co v pozici zbude
-                popis_zbytku = zbytek_text(position, scope, mnozstvi)
-                zbytek = f"; {popis_zbytku}." if popis_zbytku else "."
-                napoveda.set_text(
-                    f"{'Přecení příkaz v trhu na' if position.sell_pending else 'Prodá'} "
-                    f"{mnozstvi} ks za {price_kind_label(kind, markup)}{zbytek}"
-                )
 
         self.btn_zrusit.set_visibility(position.can_cancel)
         self.btn_odstranit.set_visibility(position.can_remove)
@@ -442,19 +405,11 @@ class TradingUI:
             self.market_open_label = ui.label().classes("odpocet-otevreni")
             self.market_open_label.set_visibility(False)
             self.dark_button = ui.button(on_click=self._toggle_dark).props("flat round dense")
-            with self.dark_button:
-                ui.tooltip("Přepnout světlý/tmavý vzhled")
             self._refresh_dark_button()
             self.status_label = ui.label().classes("stav-spojeni")
             # Kvalita spojení: odezva TWS a stáří tržních dat. Ukazuje, že
             # spojení nejen stojí, ale i žije - odpojené se skrývá
             self.link_label = ui.label().classes("stav-linky")
-            self.link_label.tooltip(
-                "Odezva TWS je doba, za kterou odpoví na dotaz na čas - měří "
-                "tedy samotnou aplikaci, ne síť k IB. Stáří dat je doba od "
-                "nejčerstvější kotace ze všech odebíraných kontraktů; mimo "
-                "obchodní hodiny přirozeně roste, protože trh nic neposílá."
-            )
             self.link_label.set_visibility(False)
             self.connect_button = ui.button("Připojit", on_click=self._toggle_connection).props(
                 "flat"
@@ -506,8 +461,14 @@ class TradingUI:
             self.right_toggle = ui.toggle(
                 {"C": "CALL", "P": "PUT"},
                 value=trading.default_right,
-                on_change=lambda _: self._naplanuj_nahled(),
             ).props("dense")
+            # Zadání se připravuje na stisk, ne na změnu hodnoty: Quasar posílá
+            # click při každém stisku a při změně směru až po aktualizaci
+            # hodnoty. Jeden stisk tak znamená právě jednu přípravu a stisk už
+            # vybraného směru slouží jako "přepočítej znovu" - kontrakt mohl
+            # mezitím obsadit někdo jiný. Platí, dokud přepínač nemá clearable;
+            # s ním by stisk vybrané volby poslal prázdnou hodnotu.
+            self.right_toggle.on("click", lambda: self._naplanuj_nahled(), [])
 
             ui.separator()
 
@@ -527,19 +488,13 @@ class TradingUI:
             self.loading_label = ui.label("Načítám data z TWS…").classes("nahled-nacitani")
             self.loading_label.set_visibility(False)
 
-            # Nápověda se mění podle toho, zda tlačítko zadává nový příkaz,
-            # nebo přeceňuje ten, který v trhu už čeká
             with ui.row().classes("radek-tlacitka-nakup"):
                 self.btn_ask = ui.button(on_click=lambda: self.buy("ask")).props(
                     "dense color=primary"
                 )
-                with self.btn_ask:
-                    self.tip_ask = ui.tooltip("")
                 self.btn_mid = ui.button(on_click=lambda: self.buy("mid")).props(
                     "dense outline color=primary"
                 )
-                with self.btn_mid:
-                    self.tip_mid = ui.tooltip("")
 
     def _build_config(self) -> None:
         """Přehled podstatných hodnot z konfiguračního souboru."""
@@ -557,18 +512,11 @@ class TradingUI:
                 # Souhrn obchodního dne v popupu - dlaždice, seznamy a grafy
                 ui.button("Výsledky", on_click=self.report_dialog.open).props(
                     "dense outline color=primary"
-                ).classes("tlacitko-vysledky").tooltip(
-                    "Přehled výsledků dne: souhrn, seznam pozic a grafy."
-                )
+                ).classes("tlacitko-vysledky")
                 # Úklid obrazovky - ukončené pozice už není co hlídat
                 self.btn_uklid = ui.button(
                     "Odstranit ukončené", on_click=self.remove_finished
                 ).props("dense outline color=grey-7")
-                with self.btn_uklid:
-                    ui.tooltip(
-                        "Vyklidí z přehledu uzavřené, zrušené i chybové pozice. "
-                        "Otevřených se nedotkne a do TWS neposílá nic."
-                    )
             self.prazdny_prehled = ui.label("Zatím žádná pozice.").classes("prazdny-prehled")
             self.positions_container = ui.column().classes("seznam-pozic")
 
@@ -829,33 +777,27 @@ class TradingUI:
         mnozstvi = self._quantity()
         symbol = (self.ticker_input.value or "").upper().strip()
         right = self.right_toggle.value
-        preview = self.engine.preview
-        pripraveno = preview is not None and preview.ready
-        sedi = pripraveno and preview.symbol == symbol and preview.right == right
+        # Náhled se počítá jen tehdy, když patří k tomu, co je ve formuláři -
+        # po přepsání tickeru by šlo o cenu jiné opce
+        nahled = self.engine.shown_preview(symbol, right)
 
         # Čeká-li na tickeru nevyplněný nákup, tlačítka příkaz přeceňují
         cekajici = self.engine.pending_buy(symbol, right) if symbol else None
         self.pending_buy_id = cekajici.id if cekajici is not None else ""
 
-        for tlacitko, napoveda, kind in (
-            (self.btn_ask, self.tip_ask, "ask"),
-            (self.btn_mid, self.tip_mid, "mid"),
-        ):
+        # Nabízí-li náhled jiný kontrakt, než na kterém příkaz visí, stisk jej
+        # přenese - na tlačítku proto svítí cena toho nového kontraktu
+        prenaseny = self.engine.transfer_preview(cekajici) if cekajici is not None else None
+
+        for tlacitko, kind in ((self.btn_ask, "ask"), (self.btn_mid, "mid")):
             popisek = buy_button_label(kind, mnozstvi)
-            if cekajici is not None:
+            if prenaseny is not None:
+                # Přepis pozice na jiný strike se počítá z náhledu, ne z příkazu
+                limit = self.engine.preview_buy_limit(kind)
+            elif cekajici is not None:
                 limit = self.engine.position_buy_limit(cekajici, kind)
-                napoveda.set_text(
-                    f"Nevyplněný příkaz se v TWS přepíše na aktuální "
-                    f"{price_kind_label(kind)}; druhý příkaz nevzniká."
-                )
             else:
-                limit = self.engine.preview_buy_limit(kind) if sedi else None
-                napoveda.set_text(
-                    "Limitní nákup na poptávané ceně - projde hned, ale zaplatí se "
-                    "celý spread."
-                    if kind == "ask"
-                    else "Limitní nákup na středu trhu - levnější, ale nemusí se vyplnit."
-                )
+                limit = self.engine.preview_buy_limit(kind) if nahled else None
             tlacitko.set_text(popisek if limit is None else f"{popisek} · {fmt(limit)}")
             # Bez spojení nebo bez tickeru nemá nákup smysl
             tlacitko.set_enabled(bool(symbol) and self.ib.connected)
@@ -1048,10 +990,6 @@ def create_ui(cfg: AppConfig, engine: ManualEngine, ib: IBService) -> None:
     # Keš se u lokální aplikace vypíná, aby se úpravy stylů projevily
     # hned po obnovení stránky
     app.add_static_files("/static", str(STATIC_DIR), max_cache_age=0)
-
-    # Bubliny s nápovědou vyskakují nad prvkem, ne pod ním - pod tlačítky
-    # by zakrývaly další ovládání
-    ui.tooltip.default_props('anchor="top middle" self="bottom middle"')
 
     @ui.page("/")
     def index() -> None:

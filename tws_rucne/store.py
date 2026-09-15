@@ -38,6 +38,7 @@ SAVED_FIELDS = (
     "runner_quantity",
     "message",
     "buy_kind",
+    "buy_seq",
     "buy_limit",
     "filled_quantity",
     "fill_price",

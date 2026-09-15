@@ -114,6 +114,9 @@ class Position:
     # 'ask' nebo 'mid' podle stisknutého tlačítka
     buy_kind: str = "ask"
     buy_limit: float | None = None
+    # Pořadové číslo nákupního příkazu - roste s každým přepsáním pozice
+    # na jiný strike a odlišuje značky příkazů v TWS po restartu
+    buy_seq: int = 1
     filled_quantity: int = 0
     fill_price: float | None = None
     fill_time: datetime | None = None
@@ -152,6 +155,10 @@ class Position:
     sell_trade: Any = None
     # Pozice drží vlastní odběr tržních dat, dokud není ukončená
     subscribed: bool = False
+    # Právě probíhá přepis na jiný kontrakt: příkaz je zrušený a hned bude
+    # zadaný nový, takže se zrušení nesmí vyhodnotit jako konec pozice.
+    # Do uloženého stavu nepatří - po restartu žádný přepis neběží
+    transferring: bool = False
     # Od kdy se u dokončeného prodeje čeká na skutečnou cenu z TWS
     # (monotónní čas); None znamená, že se zatím nečeká
     settle_wait_since: float | None = None
@@ -173,6 +180,43 @@ class Position:
     def contract_label(self) -> str:
         """Popis kontraktu, například 'AAPL 20260918 CALL 230'."""
         return contract_label(self.symbol, self.expiration, self.right, self.strike)
+
+    def apply_preview(self, preview: Any) -> None:
+        """
+        Převezme z náhledu kontrakty a jejich údaje.
+
+        Používá se při založení pozice i při přepisu na jiný strike, aby se
+        obojí plnilo stejně a nové pole náhledu se nemuselo doplňovat dvakrát.
+        Identity pozice (id, ticker, směr) se to netýká - ta se nemění.
+        """
+        self.expiration = preview.expiration
+        self.strike = preview.strike or 0.0
+        self.option_conid = preview.option.conId
+        self.option_contract = preview.option
+        self.underlying_conid = preview.underlying.conId
+        self.underlying_contract = preview.underlying
+        self.min_tick = preview.min_tick
+        self.option_bid = preview.option_bid
+        self.option_ask = preview.option_ask
+        self.delta = preview.delta
+        self.underlying_price = preview.current_price
+
+    @property
+    def sell_ref_kind(self) -> str:
+        """Druh značky prodejního příkazu v TWS - 'sell1', 'sell2'..."""
+        return f"sell{self.sell_seq}"
+
+    @property
+    def buy_ref_kind(self) -> str:
+        """
+        Druh značky nákupního příkazu v TWS - 'buy', 'buy2', 'buy3'...
+
+        Přepis pozice na jiný strike zadává pod toutéž pozicí nový příkaz.
+        Kdyby nesl stejnou značku jako ten zrušený, obnova po restartu by
+        pozici spárovala se zrušeným příkazem. První nákup zůstává 'buy',
+        aby dřívější uložené stavy i příkazy v TWS seděly dál.
+        """
+        return "buy" if self.buy_seq <= 1 else f"buy{self.buy_seq}"
 
     # ------------------------------------------------------------------
     # Množství

@@ -95,7 +95,7 @@ strike:
   # nedá vědět a obě aplikace by zamířily na týž strike. Relativní cesta
   # se vztahuje k adresáři, odkud je aplikace spuštěna; čte se jen při
   # zapnutém avoid_occupied a vlastní stav se vynechává.
-  reserved_state_files: []
+  reserved_state_files:
     - ../TWS-opce/state.json
 
 # --- Monitorovací smyčka ---

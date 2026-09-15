@@ -264,21 +264,16 @@ class ReportDialog:
                 ui.toggle(ROZSAHY, value=self.rozsah, on_change=self._on_rozsah)
                 .props("dense no-caps unelevated toggle-color=primary")
                 .classes("report-prepinac")
-                .tooltip(
-                    "Dnes: pozice založené dnešního dne a všechny, které stále "
-                    "běží. Vše: celý obsah přehledu bez ohledu na datum."
-                )
             )
             self.tlacitko_vzhled = (
                 ui.button(on_click=self._prepni_vzhled)
                 .props("flat round dense")
                 .classes("report-vzhled")
-                .tooltip("Přepnout světlý/tmavý vzhled")
             )
             self._obnov_tlacitko_vzhledu()
             ui.button(icon="close", on_click=self.dialog.close).props(
                 "flat round dense"
-            ).classes("report-zavrit").tooltip("Zavřít přehled")
+            ).classes("report-zavrit")
 
     def _prepni_vzhled(self) -> None:
         """Přepne vzhled celé aplikace a srovná ikonu tlačítka."""
