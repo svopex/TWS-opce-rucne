@@ -192,28 +192,27 @@ class TestPopiskyTlacitek(unittest.TestCase):
 
     def test_popisek_prodeje(self):
         # Bez kotace zůstane na tlačítku jen druh ceny a počet kusů
-        self.assertEqual(sell_button_text("bid", 3, None, None), "BID (3 ks)")
-        self.assertEqual(sell_button_text("mid", 1, None, None), "MID (1 ks)")
+        self.assertEqual(sell_button_text("bid", 3, 0.0, None, None), "BID (3 ks)")
+        self.assertEqual(sell_button_text("mid", 1, 0.0, None, None), "MID (1 ks)")
 
     def test_oba_radky_maji_stejny_tvar_popisku(self):
         # Stejná délka popisku drží tlačítka obou řádků ve sloupcích nad sebou
-        vse = sell_button_text("bid", 3, None, None)
-        runner = sell_button_text("bid", 1, None, None)
+        vse = sell_button_text("bid", 3, 0.0, None, None)
+        runner = sell_button_text("bid", 1, 0.0, None, None)
         self.assertEqual(len(vse), len(runner))
 
-    def test_popisek_prirazky_nad_vstupni_cenou(self):
-        # U přirážek se nepíše ani počet kusů, ani procenta - v řádku je počet
-        # jasný z tlačítek vedle a o kolik jde, říká cena a zisk za popiskem
-        self.assertEqual(sell_button_text("entry", 3, None, None), "VSTUP")
+    def test_popisek_prirazky(self):
+        # Tlačítko s přirážkou nese jen procenta - základ (vstup, nebo ASK)
+        # se mění podle trhu a počet kusů je jasný z tlačítek vedle
+        self.assertEqual(sell_button_text("markup", 3, 1.0, None, None), "+1 %")
 
     def test_popis_ceny(self):
         self.assertEqual(price_kind_label("ask"), "ASK")
         self.assertEqual(price_kind_label("bid"), "BID")
         self.assertEqual(price_kind_label("mid"), "MID")
-        self.assertEqual(price_kind_label("entry"), "VSTUP")
-        self.assertEqual(price_kind_label("entry", 2.0), "VSTUP +2 %")
+        self.assertEqual(price_kind_label("markup", 2.0), "přirážka +2 %")
         # Desetinná přirážka se nepíše se zbytečnou nulou
-        self.assertEqual(price_kind_label("entry", 2.5), "VSTUP +2.5 %")
+        self.assertEqual(price_kind_label("markup", 2.5), "přirážka +2.5 %")
 
     def test_neznamy_druh_ceny_hlasi_srozumitelnou_chybu(self):
         # Stejně jako výpočty limitních cen, ne holým KeyError
@@ -248,10 +247,10 @@ class TestVysledkuNaTlacitku(unittest.TestCase):
     def test_drobny_vysledek_se_pise_jako_nula(self):
         # Znaménko u dvaceti centů by se pletlo se skutečným ziskem
         self.assertEqual(
-            sell_button_text("bid", 1, 3.00, 0.2), "BID (1 ks) · 3.00 · 0 USD"
+            sell_button_text("bid", 1, 0.0, 3.00, 0.2), "BID (1 ks) · 3.00 · 0 USD"
         )
         self.assertEqual(
-            sell_button_text("bid", 1, 3.00, -0.2), "BID (1 ks) · 3.00 · 0 USD"
+            sell_button_text("bid", 1, 0.0, 3.00, -0.2), "BID (1 ks) · 3.00 · 0 USD"
         )
 
     def test_vysledek_do_vety_o_prikazu(self):
@@ -268,21 +267,20 @@ class TestVysledkuNaTlacitku(unittest.TestCase):
     def test_cely_popisek_tlacitka(self):
         # Prodej tří kusů za BID 3.10 při nákupu za 3.00
         self.assertEqual(
-            sell_button_text("bid", 3, 3.10, 30.0), "BID (3 ks) · 3.10 · +30 USD"
+            sell_button_text("bid", 3, 0.0, 3.10, 30.0), "BID (3 ks) · 3.10 · +30 USD"
         )
 
     def test_cely_popisek_tlacitka_s_prirazkou(self):
-        # Místo procent nese tlačítko cenu a zisk, počet kusů se nepíše
         self.assertEqual(
-            sell_button_text("entry", 2, 3.30, 60.0), "VSTUP · 3.30 · +60 USD"
+            sell_button_text("markup", 2, 3.0, 3.30, 60.0), "+3 % · 3.30 · +60 USD"
         )
 
     def test_popisek_bez_kotace_zustane_u_druhu_ceny(self):
         # Bez ceny se nedá zadat příkaz ani spočítat výsledek
-        self.assertEqual(sell_button_text("mid", 1, None, None), "MID (1 ks)")
+        self.assertEqual(sell_button_text("mid", 1, 0.0, None, None), "MID (1 ks)")
 
     def test_popisek_bez_nakupni_ceny_nese_jen_cenu(self):
-        self.assertEqual(sell_button_text("ask", 1, 3.20, None), "ASK (1 ks) · 3.20")
+        self.assertEqual(sell_button_text("ask", 1, 0.0, 3.20, None), "ASK (1 ks) · 3.20")
 
 
 if __name__ == "__main__":

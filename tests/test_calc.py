@@ -95,14 +95,22 @@ class TestLimitniCeny(unittest.TestCase):
         # Kdo nespěchá, nechá příkaz čekat na poptávku a spread inkasuje
         self.assertAlmostEqual(calc.sell_limit_price("ask", 3.00, 3.20), 3.20)
 
-    def test_prodej_nad_vstupni_cenou(self):
-        # Nákup 2,01 zvednutý o 1 % dá 2,0301, o 9 % pak 2,1909
-        self.assertAlmostEqual(calc.entry_sell_price(2.01, 1.0), 2.0301)
-        self.assertAlmostEqual(calc.entry_sell_price(2.01, 9.0), 2.1909)
+    def test_prirazka_ve_ztrate_od_vstupu(self):
+        # ASK 1,96 pod nákupem 2,01: 2,01 o 1 % dá 2,0301, o 9 % pak 2,1909
+        self.assertAlmostEqual(calc.markup_sell_price(2.01, 1.96, 1.0), 2.0301)
+        self.assertAlmostEqual(calc.markup_sell_price(2.01, 1.96, 9.0), 2.1909)
+
+    def test_prirazka_v_zisku_od_ask(self):
+        # ASK 2,16 nad nákupem 2,01 - přirážka nad vstupem by ležela pod trhem,
+        # základem je proto ASK: 2,16 o 1 % dá 2,1816
+        self.assertAlmostEqual(calc.markup_sell_price(2.01, 2.16, 1.0), 2.1816)
+
+    def test_prirazka_bez_kotace_od_vstupu(self):
+        self.assertAlmostEqual(calc.markup_sell_price(2.01, None, 1.0), 2.0301)
 
     def test_bez_vstupni_ceny_neni_limit(self):
-        # Nevyplněný nákup ještě vstupní cenu nemá
-        self.assertIsNone(calc.entry_sell_price(None, 1.0))
+        # Nevyplněný nákup ještě vstupní cenu nemá, výsledek by nešlo spočítat
+        self.assertIsNone(calc.markup_sell_price(None, 2.16, 1.0))
 
     def test_mid_bez_uplne_kotace_neexistuje(self):
         self.assertIsNone(calc.buy_limit_price("mid", None, 3.20))

@@ -17,12 +17,12 @@ OPTION_MULTIPLIER = 100
 
 # Druhy limitní ceny nabízené tlačítky rozhraní.
 # Prodávat lze i za ASK - kdo nespěchá, nechá příkaz čekat na poptávku
-# a spread nezaplatí, ale inkasuje. Druh 'entry' z kotace nevychází:
-# prodává za vstupní (nákupní) cenu pozice zvednutou o přirážku.
+# a spread nezaplatí, ale inkasuje. Druh 'markup' prodává s přirážkou
+# nad vyšší z cen vstup / ASK (viz markup_sell_price).
 BUY_KINDS = ("ask", "mid")
 QUOTE_SELL_KINDS = ("bid", "mid", "ask")
-ENTRY_SELL_KIND = "entry"
-SELL_KINDS = QUOTE_SELL_KINDS + (ENTRY_SELL_KIND,)
+MARKUP_SELL_KIND = "markup"
+SELL_KINDS = QUOTE_SELL_KINDS + (MARKUP_SELL_KIND,)
 
 
 def is_price(value: float | None) -> bool:
@@ -121,17 +121,25 @@ def sell_limit_price(
     raise ValueError(f"Neznámý druh prodejní ceny za kotaci: {kind}")
 
 
-def entry_sell_price(entry_price: float | None, markup_pct: float) -> float | None:
+def markup_sell_price(
+    entry_price: float | None, ask: float | None, markup_pct: float
+) -> float | None:
     """
-    Limitní cena prodeje nad vstupní cenou pozice.
+    Limitní cena prodeje s přirážkou nad vyšší z cen vstup / ASK.
 
     entry_price je průměrná cena vyplněného nákupu, markup_pct přirážka
-    v procentech (nabídku určuje trading.entry_markups_pct v konfiguraci).
-    Cena na kotaci nezávisí; bez vstupní ceny (nevyplněný nákup) vrací None.
+    v procentech (nabídku určuje trading.sell_markups_pct v konfiguraci).
+
+    Pozice ve ztrátě (ASK pod vstupem) tak míří na zisk daný procenty
+    z nákupu. Pozice v zisku staví přirážky nad ASK - přirážka nad vstupem
+    by ležela pod trhem, příkaz by se vyplnil hned za tržní cenu a řada
+    tlačítek by nerostla. Bez kotace zbývá jako základ vstupní cena,
+    bez vstupní ceny (nevyplněný nákup) vrací None.
     """
     if not is_price(entry_price):
         return None
-    return entry_price * (1.0 + markup_pct / 100.0)
+    zaklad = max(entry_price, ask) if is_price(ask) else entry_price
+    return zaklad * (1.0 + markup_pct / 100.0)
 
 
 def nearest_strike(strikes: list[float], target: float) -> float | None:

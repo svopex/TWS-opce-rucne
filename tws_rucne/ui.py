@@ -20,6 +20,7 @@ from .models import (
     SELL_SCOPE_ONE,
     Position,
     buy_button_label,
+    markup_text,
     pnl_text,
     sell_button_text,
     ukoncene_pozice_text,
@@ -223,8 +224,8 @@ class PositionCard:
         Vykreslí řádek prodejních tlačítek pro daný rozsah pozice.
 
         Nabídka začíná prodejem za kotaci - BID, MID, ASK - a pokračuje
-        přirážkami nad vstupní cenou pozice (trading.entry_markups_pct
-        v konfiguraci), které míří na zisk daný procenty z nákupu. Vrací trojice
+        přirážkami (trading.sell_markups_pct v konfiguraci) nad vyšší z cen
+        vstup / ASK, takže řada cen zleva doprava vždy roste. Vrací trojice
         (tlačítko, druh ceny, přirážka), ze kterých se při každém překreslení
         obnovují popisky i ceny.
         """
@@ -233,7 +234,7 @@ class PositionCard:
         # Kolik tlačítek s přirážkou vznikne, určuje délka nabídky z enginu;
         # mřížka řádku si sloupce dopočítá sama
         varianty += [
-            (calc.ENTRY_SELL_KIND, p) for p in self.parent.engine.entry_markups_pct
+            (calc.MARKUP_SELL_KIND, p) for p in self.parent.engine.sell_markups_pct
         ]
 
         for kind, markup in varianty:
@@ -315,12 +316,13 @@ class PositionCard:
                 if not dostupne:
                     continue
                 limit = engine.position_sell_limit(position, kind, markup)
-                # Na tlačítku stojí druh ceny, limitní cena a zisk či ztráta,
-                # kterou prodej tohoto množství za tuto cenu přinese
+                # Na tlačítku stojí druh ceny (u přirážky procenta), limitní
+                # cena a zisk či ztráta, kterou prodej tohoto množství přinese
                 tlacitko.set_text(
                     sell_button_text(
                         kind,
                         mnozstvi,
+                        markup,
                         limit,
                         position.sell_pnl_at(limit, mnozstvi),
                     )
@@ -670,8 +672,8 @@ class TradingUI:
         reprice nese stav, ve kterém bylo tlačítko vykresleno: True znamená,
         že pozice měla prodejní příkaz v trhu a stisk jej má jen přecenit.
         Vyplnil-li se mezitím, engine akci odmítne a nic se neprodá znovu.
-        markup_pct je přirážka nad zvolenou cenou (tlačítka s přirážkou nad
-        vstupní cenou, nabídku určuje trading.entry_markups_pct v konfiguraci).
+        markup_pct je přirážka tlačítek druhu 'markup' (nabídku určuje
+        trading.sell_markups_pct v konfiguraci).
         """
         if not self._zamek():
             return
@@ -985,11 +987,11 @@ class TradingUI:
         else:
             obsazene = "nepřeskakují se"
 
-        # Přirážky nad vstupní cenou: na tlačítkách je místo procent zisk,
-        # takže odstupy jednotlivých tlačítek by jinak v rozhraní nebyly vidět
+        # Přirážky i s tím, od čeho se počítají - z tlačítek samotných
+        # základ vidět není
         prirazky = (
-            " | ".join(f"+{p:g} %" for p in t.entry_markups_pct)
-            if t.entry_markups_pct
+            " | ".join(markup_text(p) for p in t.sell_markups_pct)
+            if t.sell_markups_pct
             else "nenabízejí se"
         )
 
@@ -999,7 +1001,7 @@ class TradingUI:
             f"Obsazené strike: {obsazene}\n"
             f"Runner: {t.runner_quantity} ks | max. spread {t.max_spread_pct:g} %\n"
             f"Tolerance: ASK +{t.ask_tolerance_pct:g} % | BID -{t.bid_tolerance_pct:g} %\n"
-            f"Přirážky nad vstupní cenou: {prirazky}\n"
+            f"Přirážky nad vstupem (v zisku nad ASK): {prirazky}\n"
             f"Platnost příkazů: {t.tif}"
         )
 

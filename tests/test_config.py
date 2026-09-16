@@ -84,7 +84,7 @@ class TestRezervacnichSouboru(unittest.TestCase):
         self.assertIn("reserved_state_files", str(chyba.exception))
 
 
-class TestPrirazekNadVstupniCenou(unittest.TestCase):
+class TestProdejnichPrirazek(unittest.TestCase):
     """Přirážky prodejních tlačítek se ověřují jako seznam kladných procent."""
 
     def _chyba(self, cfg: AppConfig) -> str:
@@ -95,41 +95,41 @@ class TestPrirazekNadVstupniCenou(unittest.TestCase):
 
     def test_desetinne_prirazky_projdou(self):
         cfg = AppConfig()
-        cfg.trading.entry_markups_pct = [0.5, 1.0, 1.5, 2.25]
+        cfg.trading.sell_markups_pct = [0.5, 1.0, 1.5, 2.25]
         validate_config(cfg)
 
     def test_prazdny_seznam_prirazky_vypne(self):
         cfg = AppConfig()
-        cfg.trading.entry_markups_pct = []
+        cfg.trading.sell_markups_pct = []
         validate_config(cfg)
 
     def test_jedine_cislo_misto_seznamu_neprojde(self):
         cfg = AppConfig()
-        cfg.trading.entry_markups_pct = 1.0
-        self.assertIn("entry_markups_pct", self._chyba(cfg))
+        cfg.trading.sell_markups_pct = 1.0
+        self.assertIn("sell_markups_pct", self._chyba(cfg))
 
     def test_zaporna_prirazka_neprojde(self):
         # Prodej pod nákupní cenou nabízí tlačítko BID, ne přirážka
         cfg = AppConfig()
-        cfg.trading.entry_markups_pct = [1.0, -2.0]
-        self.assertIn("entry_markups_pct", self._chyba(cfg))
+        cfg.trading.sell_markups_pct = [1.0, -2.0]
+        self.assertIn("sell_markups_pct", self._chyba(cfg))
 
     def test_nula_neprojde(self):
         # Nulová přirážka by jen prodávala za nákupní cenu bez zisku
         cfg = AppConfig()
-        cfg.trading.entry_markups_pct = [0.0]
-        self.assertIn("entry_markups_pct", self._chyba(cfg))
+        cfg.trading.sell_markups_pct = [0.0]
+        self.assertIn("sell_markups_pct", self._chyba(cfg))
 
     def test_text_misto_cisla_neprojde(self):
         cfg = AppConfig()
-        cfg.trading.entry_markups_pct = ["1 %"]
-        self.assertIn("entry_markups_pct", self._chyba(cfg))
+        cfg.trading.sell_markups_pct = ["1 %"]
+        self.assertIn("sell_markups_pct", self._chyba(cfg))
 
     def test_pravdivostni_hodnota_neprojde(self):
         # true je v Pythonu podtyp int a jinak by prošlo jako 1 %
         cfg = AppConfig()
-        cfg.trading.entry_markups_pct = [True]
-        self.assertIn("entry_markups_pct", self._chyba(cfg))
+        cfg.trading.sell_markups_pct = [True]
+        self.assertIn("sell_markups_pct", self._chyba(cfg))
 
 
 if __name__ == "__main__":

@@ -548,14 +548,14 @@ class ManualEngine:
         return None if cena is None else calc.round_to_tick(cena, position.min_tick)
 
     @property
-    def entry_markups_pct(self) -> list[float]:
+    def sell_markups_pct(self) -> list[float]:
         """
-        Přirážky nad vstupní cenou nabízené prodejními tlačítky (v procentech).
+        Přirážky nabízené prodejními tlačítky (v procentech).
 
         Rozhraní si nabídku bere odtud, ne z konfigurace: ceny tlačítek už
         počítá engine (position_sell_limit), takže obojí pochází z jednoho místa.
         """
-        return self.cfg.trading.entry_markups_pct
+        return self.cfg.trading.sell_markups_pct
 
     def position_sell_limit(
         self, position: Position, kind: str, markup_pct: float = 0.0
@@ -563,11 +563,13 @@ class ManualEngine:
         """
         Limitní cena prodeje pro dané tlačítko, zaokrouhlená na tik kontraktu.
 
-        Druh 'entry' prodává za nákupní cenu pozice zvednutou o markup_pct,
+        Druh 'markup' prodává s přirážkou markup_pct nad vyšší z cen vstup / ASK,
         ostatní druhy za aktuální kotaci pozice (přirážku nemají).
         """
-        if kind == calc.ENTRY_SELL_KIND:
-            cena = calc.entry_sell_price(position.fill_price, markup_pct)
+        if kind == calc.MARKUP_SELL_KIND:
+            cena = calc.markup_sell_price(
+                position.fill_price, position.option_ask, markup_pct
+            )
         else:
             cena = calc.sell_limit_price(
                 kind,
@@ -892,12 +894,11 @@ class ManualEngine:
         Zadá limitní prodejní příkaz na drženou pozici.
 
         kind  = 'bid' prodává na nabízené ceně, 'mid' na středu trhu, 'ask'
-        na poptávané ceně a 'entry' na vstupní (nákupní) ceně pozice.
+        na poptávané ceně a 'markup' s přirážkou nad vyšší z cen vstup / ASK.
         scope = 'all' prodává celou drženou pozici, 'base' jen základní část,
         takže v trhu zůstane runner (počet kontraktů z konfigurace), a 'one'
         jediný kontrakt - pro odprodávání pozice po kusech.
-        markup_pct zvedne limitní cenu o zadaná procenta nad zvolenou cenou -
-        s druhem 'entry' tak příkaz míří na zisk daný procenty z nákupu.
+        markup_pct je přirážka v procentech, patří jen k druhu 'markup'.
 
         reprice říká, že rozhraní vykreslilo tlačítko nad pozicí, která už
         prodejní příkaz v trhu měla. Opakovaný stisk pak příkaz jen přecení
@@ -908,9 +909,9 @@ class ManualEngine:
         """
         if kind not in calc.SELL_KINDS:
             raise ValueError(f"Neznámý druh prodeje: {kind}")
-        # Přirážku nabízí jen prodej nad vstupní cenou - u prodeje za kotaci
-        # by se zapsala do hlášky, ale limitní cenu by nezměnila
-        if markup_pct and kind != calc.ENTRY_SELL_KIND:
+        # Přirážku nabízí jen druh 'markup' - u prodeje za kotaci by se zapsala
+        # do hlášky, ale limitní cenu by nezměnila
+        if markup_pct and kind != calc.MARKUP_SELL_KIND:
             raise ValueError(f"Prodej za {price_kind_label(kind)} přirážku nemá.")
         if scope not in (SELL_SCOPE_ALL, SELL_SCOPE_BASE, SELL_SCOPE_ONE):
             raise ValueError(f"Neznámý rozsah prodeje: {scope}")
@@ -943,14 +944,14 @@ class ManualEngine:
         if mnozstvi < 1:
             raise ValueError("Není co prodat - pozice nedrží dost kontraktů.")
 
-        # Prodej za kotaci vychází z čerstvých kotací, ne z hodnot uložených
-        # při nákupu; prodej nad vstupní cenou potřebuje jen nákupní cenu
+        # Prodej vychází z čerstvých kotací, ne z hodnot uložených při nákupu;
+        # přirážce bez kotace zbývá jako základ nákupní cena
         self._refresh_market_data(position)
         limit = self.position_sell_limit(position, kind, markup_pct)
         if limit is None:
             chybi = (
                 "Pozice nemá nákupní cenu"
-                if kind == calc.ENTRY_SELL_KIND
+                if kind == calc.MARKUP_SELL_KIND
                 else "Z TWS nedorazila potřebná kotace opce"
             )
             raise ValueError(f"{chybi} - limitní cenu prodeje nelze určit.")

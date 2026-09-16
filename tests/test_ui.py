@@ -27,7 +27,7 @@ class TestObsluhaTlacitek(unittest.TestCase):
     def test_prodej_prijme_vse_co_karta_posila(self):
         # Karta předává: pozici, druh ceny, rozsah, příznak přecenění a přirážku
         inspect.signature(TradingUI.sell).bind(
-            None, "AAPL-1", "entry", SELL_SCOPE_BASE, True, 5.0
+            None, "AAPL-1", "markup", SELL_SCOPE_BASE, True, 5.0
         )
 
     def test_engine_prijme_od_rozhrani_totez(self):

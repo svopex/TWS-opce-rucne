@@ -131,8 +131,7 @@ class Position:
     # Právě zadaný prodejní příkaz
     sell_kind: str = ""
     sell_scope: str = ""
-    # Přirážka nad zvolenou cenou, se kterou byl příkaz zadán (v procentech);
-    # u druhu 'entry' jde o přirážku nad vstupní cenou pozice
+    # Přirážka, se kterou byl příkaz zadán (v procentech, jen u druhu 'markup')
     sell_markup_pct: float = 0.0
     sell_limit: float | None = None
     sell_quantity: int = 0
@@ -541,19 +540,23 @@ def ukoncene_pozice_text(pocet: int) -> str:
     return f"odstraněno {pocet} ukončených pozic"
 
 
+def markup_text(markup_pct: float) -> str:
+    """Přirážka pro zobrazení, například '+1 %' nebo '+2.5 %' (bez zbytečné nuly)."""
+    return f"+{markup_pct:g} %"
+
+
 def price_kind_label(kind: str, markup_pct: float = 0.0) -> str:
     """
-    Popis ceny příkazu: 'ASK', 'BID', 'MID', 'VSTUP', nebo s přirážkou
-    'VSTUP +1 %' (vstupní cena pozice zvednutá o procento).
+    Popis ceny příkazu: 'ASK', 'BID', 'MID', nebo s přirážkou 'přirážka +1 %'.
     Přirážka se píše jen tehdy, když je nenulová.
     """
-    nazev = {"ask": "ASK", "bid": "BID", "mid": "MID", "entry": "VSTUP"}.get(kind)
+    nazev = {"ask": "ASK", "bid": "BID", "mid": "MID", "markup": "přirážka"}.get(kind)
     # Srozumitelná chyba místo holého KeyError - stejně jako v calc.*_limit_price
     if nazev is None:
         raise ValueError(f"Neznámý druh ceny: {kind}")
     if not markup_pct:
         return nazev
-    return f"{nazev} +{markup_pct:g} %"
+    return f"{nazev} {markup_text(markup_pct)}"
 
 
 def buy_button_label(kind: str, quantity: int) -> str:
@@ -581,6 +584,7 @@ def order_pnl_text(pnl: float | None) -> str:
 def sell_button_text(
     kind: str,
     quantity: int,
+    markup_pct: float,
     limit: float | None,
     pnl: float | None,
 ) -> str:
@@ -592,17 +596,19 @@ def sell_button_text(
     tlačítka stejného druhu stojí ve sloupcích nad sebou. Který řádek prodává
     celou pozici a který nechává runner, říká barva a pořadí řádku.
 
-    U přirážek nad vstupní cenou zůstává jen 'VSTUP' bez procent i bez počtu
-    kusů: o kolik jde, je vidět z ceny a zisku za popiskem, a množství je jasné
-    z tlačítek vedle. Do zápisu o příkazu procenta patří dál (price_kind_label) -
-    tam je cena bez nich nedohledatelná.
+    Tlačítko s přirážkou nese místo druhu ceny jen procenta ('+1 % · 2.18 ·
+    +17 USD'): základ přirážky se mění podle trhu (vstup, nebo ASK), takže
+    pevný název by nesouhlasil. Počet kusů se u něj nepíše - je jasný
+    z tlačítek vedle.
 
     Bez použitelné kotace chybí cena a tlačítko se stejně nedá stisknout,
     bez nákupní ceny chybí výsledek; taková část se do popisku prostě nedá,
     aby na tlačítku nesvítila pomlčka.
     """
-    nazev = price_kind_label(kind)
-    casti = [nazev if kind == calc.ENTRY_SELL_KIND else f"{nazev} ({quantity} ks)"]
+    if kind == calc.MARKUP_SELL_KIND:
+        casti = [markup_text(markup_pct)]
+    else:
+        casti = [f"{price_kind_label(kind)} ({quantity} ks)"]
 
     if limit is not None:
         casti.append(cislo_text(limit))

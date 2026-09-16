@@ -20,9 +20,9 @@ STRIKE_MODES = ("otm_offset", "atm")
 # Povolené typy opce, které lze ve formuláři zvolit
 RIGHTS = ("C", "P")
 
-# Výchozí přirážky nad vstupní cenou pozice v procentech - z každé vzniká jedno
-# prodejní tlačítko. Platí, dokud je config nepřepíše (trading.entry_markups_pct).
-DEFAULT_ENTRY_MARKUPS_PCT = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0)
+# Výchozí prodejní přirážky v procentech - z každé vzniká jedno prodejní
+# tlačítko. Platí, dokud je config nepřepíše (trading.sell_markups_pct).
+DEFAULT_SELL_MARKUPS_PCT = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0)
 
 
 @dataclass
@@ -65,12 +65,12 @@ class TradingConfig:
     ask_tolerance_pct: float = 0.0
     # Tolerance pod BID v procentech pro prodej "za BID"
     bid_tolerance_pct: float = 0.0
-    # Přirážky nad vstupní (nákupní) cenou pozice v procentech (i desetinná
-    # místa). Každá hodnota přidá do řádku jedno prodejní tlačítko, které
-    # prodává se ziskem daným procenty z nákupu; pořadí v seznamu je pořadím
-    # tlačítek zleva doprava.
-    entry_markups_pct: list[float] = field(
-        default_factory=lambda: list(DEFAULT_ENTRY_MARKUPS_PCT)
+    # Prodejní přirážky v procentech (i desetinná místa). Každá hodnota přidá
+    # do řádku jedno prodejní tlačítko, které prodává s přirážkou nad vyšší
+    # z cen vstup / ASK - ve ztrátě tedy nad nákupní cenou, v zisku nad trhem.
+    # Pořadí v seznamu je pořadím tlačítek zleva doprava.
+    sell_markups_pct: list[float] = field(
+        default_factory=lambda: list(DEFAULT_SELL_MARKUPS_PCT)
     )
     # Spread, nad kterým rozhraní upozorní, že se obchod nevyplácí.
     # Nákup se ale nezakazuje - o zadání rozhoduje obchodník.
@@ -300,15 +300,15 @@ def validate_config(cfg: AppConfig) -> None:
     if cfg.trading.ask_tolerance_pct < 0 or cfg.trading.bid_tolerance_pct < 0:
         problemy.append("tolerance nad ASK ani pod BID nesmí být záporná")
 
-    # Přirážky nad vstupní cenou: jediné číslo místo seznamu nebo nekladná
-    # hodnota by se jinak projevily až rozsypaným řádkem tlačítek, případně
-    # prodejním příkazem na nákupní ceně nebo pod ní. Pravdivostní hodnota je
-    # v Pythonu podtyp čísla, takže 'true' v YAML by bez vyloučení prošlo jako 1 %
-    if not isinstance(cfg.trading.entry_markups_pct, list) or any(
+    # Prodejní přirážky: jediné číslo místo seznamu nebo nekladná hodnota
+    # by se jinak projevily až rozsypaným řádkem tlačítek, případně prodejním
+    # příkazem na základní ceně nebo pod ní. Pravdivostní hodnota je v Pythonu
+    # podtyp čísla, takže 'true' v YAML by bez vyloučení prošlo jako 1 %
+    if not isinstance(cfg.trading.sell_markups_pct, list) or any(
         isinstance(p, bool) or not isinstance(p, (int, float)) or p <= 0
-        for p in cfg.trading.entry_markups_pct
+        for p in cfg.trading.sell_markups_pct
     ):
-        problemy.append("trading.entry_markups_pct musí být seznam kladných procent")
+        problemy.append("trading.sell_markups_pct musí být seznam kladných procent")
     if cfg.trading.tif not in ("DAY", "GTC"):
         problemy.append(f"trading.tif musí být DAY nebo GTC, nalezeno '{cfg.trading.tif}'")
 

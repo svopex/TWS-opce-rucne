@@ -47,15 +47,14 @@ trading:
   # Tolerance pod BID v procentech pro prodej "za BID"
   bid_tolerance_pct: 0.0
 
-  # Přirážky nad vstupní (nákupní) cenou pozice v procentech - povolena jsou
-  # i desetinná místa (0.5 = půl procenta). Každá hodnota přidá do řádku
-  # u pozice jedno prodejní tlačítko, které prodává za nákupní cenu zvednutou
-  # o daná procenta - tedy se ziskem, bez ohledu na aktuální kotaci. Pořadí
+  # Prodejní přirážky v procentech - povolena jsou i desetinná místa
+  # (0.5 = půl procenta). Každá hodnota přidá do řádku u pozice jedno
+  # prodejní tlačítko, které prodává s přirážkou nad vyšší z cen vstup / ASK:
+  # pozice ve ztrátě míří na zisk daný procenty z nákupu, pozice v zisku
+  # staví přirážky nad trh, takže řada cen zleva doprava vždy roste. Pořadí
   # v seznamu je pořadím tlačítek zleva doprava, prázdný seznam přirážky vypne.
-  # Procenta se na tlačítka nepíšou - je na nich limitní cena a zisk,
-  # který prodej za ni přinese; nastavené odstupy ukazuje karta Nastavení
-  # pod formulářem.
-  entry_markups_pct: [1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0]
+  # Na tlačítku stojí procenta, limitní cena a zisk proti nákupní ceně.
+  sell_markups_pct: [1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.0]
   # Spread, nad kterým rozhraní upozorní, že se obchod prodraží.
   # Nákup se nezakazuje - o zadání rozhoduje obchodník.
   max_spread_pct: 7.0
