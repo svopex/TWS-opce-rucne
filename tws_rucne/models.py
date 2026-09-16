@@ -581,7 +581,6 @@ def order_pnl_text(pnl: float | None) -> str:
 def sell_button_text(
     kind: str,
     quantity: int,
-    markup_pct: float,
     limit: float | None,
     pnl: float | None,
 ) -> str:
@@ -603,7 +602,7 @@ def sell_button_text(
     aby na tlačítku nesvítila pomlčka.
     """
     nazev = price_kind_label(kind)
-    casti = [nazev if markup_pct else f"{nazev} ({quantity} ks)"]
+    casti = [nazev if kind == calc.ENTRY_SELL_KIND else f"{nazev} ({quantity} ks)"]
 
     if limit is not None:
         casti.append(cislo_text(limit))

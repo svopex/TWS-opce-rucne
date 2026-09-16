@@ -84,7 +84,7 @@ class TestRezervacnichSouboru(unittest.TestCase):
         self.assertIn("reserved_state_files", str(chyba.exception))
 
 
-class TestPrirazekNadAsk(unittest.TestCase):
+class TestPrirazekNadVstupniCenou(unittest.TestCase):
     """Přirážky prodejních tlačítek se ověřují jako seznam kladných procent."""
 
     def _chyba(self, cfg: AppConfig) -> str:

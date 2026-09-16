@@ -17,10 +17,12 @@ OPTION_MULTIPLIER = 100
 
 # Druhy limitní ceny nabízené tlačítky rozhraní.
 # Prodávat lze i za ASK - kdo nespěchá, nechá příkaz čekat na poptávku
-# a spread nezaplatí, ale inkasuje. Druh 'entry' prodává za vstupní
-# (nákupní) cenu pozice - s přirážkou tak míří na zadaný zisk.
+# a spread nezaplatí, ale inkasuje. Druh 'entry' z kotace nevychází:
+# prodává za vstupní (nákupní) cenu pozice zvednutou o přirážku.
 BUY_KINDS = ("ask", "mid")
-SELL_KINDS = ("bid", "mid", "ask", "entry")
+QUOTE_SELL_KINDS = ("bid", "mid", "ask")
+ENTRY_SELL_KIND = "entry"
+SELL_KINDS = QUOTE_SELL_KINDS + (ENTRY_SELL_KIND,)
 
 
 def is_price(value: float | None) -> bool:
@@ -97,43 +99,39 @@ def sell_limit_price(
     bid: float | None,
     ask: float | None,
     bid_tolerance_pct: float = 0.0,
-    markup_pct: float = 0.0,
-    entry_price: float | None = None,
 ) -> float | None:
     """
-    Limitní cena prodeje podle zvoleného tlačítka.
+    Limitní cena prodeje za kotaci podle zvoleného tlačítka.
 
     kind = 'bid' prodává na nabízené ceně (volitelně snížené o toleranci),
-    kind = 'mid' na středu trhu, kind = 'ask' na poptávané ceně a
-    kind = 'entry' na vstupní ceně pozice (entry_price, průměrná cena nákupu).
-    Bez potřebné kotace, u 'entry' bez vstupní ceny, vrací None.
-
-    markup_pct zvedne výslednou cenu o zadaná procenta. Tlačítka s přirážkou
-    nad vstupní cenou (nabídku určuje trading.entry_markups_pct v konfiguraci)
-    tak prodávají se ziskem daným procenty z nákupu, bez ohledu na to, kde
-    právě stojí kotace.
+    kind = 'mid' na středu trhu, kind = 'ask' na poptávané ceně.
+    Bez potřebné kotace vrací None.
     """
     if kind == "bid":
         if not is_price(bid):
             return None
-        cena = bid * (1.0 - max(0.0, bid_tolerance_pct) / 100.0)
-    elif kind == "mid":
-        cena = mid_price(bid, ask)
-        if cena is None:
-            return None
-    elif kind == "ask":
-        if not is_price(ask):
-            return None
-        cena = ask
-    elif kind == "entry":
-        # Vstupní cena nezávisí na kotaci - chybí jen u nevyplněného nákupu
-        if not is_price(entry_price):
-            return None
-        cena = entry_price
-    else:
-        raise ValueError(f"Neznámý druh prodejní ceny: {kind}")
+        return bid * (1.0 - max(0.0, bid_tolerance_pct) / 100.0)
 
-    return cena * (1.0 + markup_pct / 100.0)
+    if kind == "mid":
+        return mid_price(bid, ask)
+
+    if kind == "ask":
+        return ask if is_price(ask) else None
+
+    raise ValueError(f"Neznámý druh prodejní ceny za kotaci: {kind}")
+
+
+def entry_sell_price(entry_price: float | None, markup_pct: float) -> float | None:
+    """
+    Limitní cena prodeje nad vstupní cenou pozice.
+
+    entry_price je průměrná cena vyplněného nákupu, markup_pct přirážka
+    v procentech (nabídku určuje trading.entry_markups_pct v konfiguraci).
+    Cena na kotaci nezávisí; bez vstupní ceny (nevyplněný nákup) vrací None.
+    """
+    if not is_price(entry_price):
+        return None
+    return entry_price * (1.0 + markup_pct / 100.0)
 
 
 def nearest_strike(strikes: list[float], target: float) -> float | None:

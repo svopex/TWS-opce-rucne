@@ -561,19 +561,20 @@ class ManualEngine:
         self, position: Position, kind: str, markup_pct: float = 0.0
     ) -> float | None:
         """
-        Limitní cena prodeje pro dané tlačítko podle aktuálních kotací pozice.
-        markup_pct je přirážka nad zvolenou cenou - u tlačítek s druhem 'entry'
-        nad vstupní cenou pozice (nabídku určuje trading.entry_markups_pct).
+        Limitní cena prodeje pro dané tlačítko, zaokrouhlená na tik kontraktu.
+
+        Druh 'entry' prodává za nákupní cenu pozice zvednutou o markup_pct,
+        ostatní druhy za aktuální kotaci pozice (přirážku nemají).
         """
-        # Vstupní cenou je průměrná cena vyplněného nákupu
-        cena = calc.sell_limit_price(
-            kind,
-            position.option_bid,
-            position.option_ask,
-            self.cfg.trading.bid_tolerance_pct,
-            markup_pct,
-            position.fill_price,
-        )
+        if kind == calc.ENTRY_SELL_KIND:
+            cena = calc.entry_sell_price(position.fill_price, markup_pct)
+        else:
+            cena = calc.sell_limit_price(
+                kind,
+                position.option_bid,
+                position.option_ask,
+                self.cfg.trading.bid_tolerance_pct,
+            )
         return None if cena is None else calc.round_to_tick(cena, position.min_tick)
 
     # ------------------------------------------------------------------
@@ -907,6 +908,10 @@ class ManualEngine:
         """
         if kind not in calc.SELL_KINDS:
             raise ValueError(f"Neznámý druh prodeje: {kind}")
+        # Přirážku nabízí jen prodej nad vstupní cenou - u prodeje za kotaci
+        # by se zapsala do hlášky, ale limitní cenu by nezměnila
+        if markup_pct and kind != calc.ENTRY_SELL_KIND:
+            raise ValueError(f"Prodej za {price_kind_label(kind)} přirážku nemá.")
         if scope not in (SELL_SCOPE_ALL, SELL_SCOPE_BASE, SELL_SCOPE_ONE):
             raise ValueError(f"Neznámý rozsah prodeje: {scope}")
         if not self.ib.connected:
@@ -938,13 +943,17 @@ class ManualEngine:
         if mnozstvi < 1:
             raise ValueError("Není co prodat - pozice nedrží dost kontraktů.")
 
-        # Prodej vychází z čerstvých kotací, ne z hodnot uložených při nákupu
+        # Prodej za kotaci vychází z čerstvých kotací, ne z hodnot uložených
+        # při nákupu; prodej nad vstupní cenou potřebuje jen nákupní cenu
         self._refresh_market_data(position)
         limit = self.position_sell_limit(position, kind, markup_pct)
         if limit is None:
-            raise ValueError(
-                "Z TWS nedorazila potřebná kotace opce - limitní cenu prodeje nelze určit."
+            chybi = (
+                "Pozice nemá nákupní cenu"
+                if kind == calc.ENTRY_SELL_KIND
+                else "Z TWS nedorazila potřebná kotace opce"
             )
+            raise ValueError(f"{chybi} - limitní cenu prodeje nelze určit.")
 
         if position.state == PositionState.SELLING:
             return self._reprice_sell(position, kind, scope, mnozstvi, limit, markup_pct)

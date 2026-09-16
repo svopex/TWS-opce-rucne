@@ -229,15 +229,17 @@ class PositionCard:
         obnovují popisky i ceny.
         """
         tlacitka: list[tuple[Any, Any, str, float]] = []
-        varianty = [("bid", 0.0), ("mid", 0.0), ("ask", 0.0)]
+        varianty = [(kind, 0.0) for kind in calc.QUOTE_SELL_KINDS]
         # Kolik tlačítek s přirážkou vznikne, určuje délka nabídky z enginu;
         # mřížka řádku si sloupce dopočítá sama
-        varianty += [("entry", p) for p in self.parent.engine.entry_markups_pct]
+        varianty += [
+            (calc.ENTRY_SELL_KIND, p) for p in self.parent.engine.entry_markups_pct
+        ]
 
         for kind, markup in varianty:
             # Plnou barvou je jen první tlačítko, ostatní jsou obtažená -
             # jinak by řádek se sedmi barevnými plochami nešel přečíst
-            vzhled = "dense" if (kind, markup) == ("bid", 0.0) else "dense outline"
+            vzhled = "dense" if kind == "bid" else "dense outline"
             # Hodnoty se do obsluhy předávají výchozími argumenty, jinak by si
             # všechna tlačítka pamatovala poslední průchod cyklem
             tlacitko = ui.button(
@@ -319,7 +321,6 @@ class PositionCard:
                     sell_button_text(
                         kind,
                         mnozstvi,
-                        markup,
                         limit,
                         position.sell_pnl_at(limit, mnozstvi),
                     )
