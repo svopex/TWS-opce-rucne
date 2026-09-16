@@ -109,6 +109,31 @@ class TestLimitniCeny(unittest.TestCase):
     def test_prirazka_bez_kotace_neexistuje(self):
         self.assertIsNone(calc.sell_limit_price("ask", 3.00, None, 0.0, 3.0))
 
+    def test_prodej_nad_vstupni_cenou(self):
+        # Nákup 2,01 zvednutý o 1 % dá 2,0301 - kotace 1,94 / 1,96 na tom nic nemění
+        self.assertAlmostEqual(
+            calc.sell_limit_price("entry", 1.94, 1.96, 0.0, 1.0, 2.01), 2.0301
+        )
+        self.assertAlmostEqual(
+            calc.sell_limit_price("entry", 1.94, 1.96, 0.0, 9.0, 2.01), 2.1909
+        )
+
+    def test_vstupni_cena_nepotrebuje_kotaci(self):
+        self.assertAlmostEqual(
+            calc.sell_limit_price("entry", None, None, 0.0, 2.0, 3.00), 3.06
+        )
+
+    def test_bez_vstupni_ceny_neni_limit(self):
+        # Nevyplněný nákup ještě vstupní cenu nemá
+        self.assertIsNone(calc.sell_limit_price("entry", 3.00, 3.20, 0.0, 1.0))
+        self.assertIsNone(calc.sell_limit_price("entry", 3.00, 3.20, 0.0, 1.0, None))
+
+    def test_tolerance_pod_bid_vstupni_cenu_nemeni(self):
+        # Tolerance patří jen k prodeji za BID
+        self.assertAlmostEqual(
+            calc.sell_limit_price("entry", 3.00, 3.20, 5.0, 0.0, 3.10), 3.10
+        )
+
     def test_mid_bez_uplne_kotace_neexistuje(self):
         self.assertIsNone(calc.buy_limit_price("mid", None, 3.20))
         self.assertIsNone(calc.sell_limit_price("mid", 3.00, None))
@@ -118,7 +143,7 @@ class TestLimitniCeny(unittest.TestCase):
         self.assertIsNone(calc.sell_limit_price("ask", 3.00, None))
 
     def test_neznamy_druh_je_chyba(self):
-        # Nakupuje se za ASK nebo MID, prodává za BID, MID nebo ASK
+        # Nakupuje se za ASK nebo MID, prodává za BID, MID, ASK nebo vstupní cenu
         with self.assertRaises(ValueError):
             calc.buy_limit_price("bid", 3.00, 3.20)
         with self.assertRaises(ValueError):

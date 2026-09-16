@@ -822,8 +822,8 @@ class TestVysledkuVHlasce(ZakladEnginu):
 
     async def test_zisk_pri_prodeji_s_prirazkou(self):
         position = await self.nakup_vyplnen(quantity=3)
-        # ASK 3,20 o 5 % výš je na rastru 3,35, tedy 0,15 nad nákupem krát 300
-        await self.engine.sell(position.id, "ask", SELL_SCOPE_ALL, markup_pct=5.0)
+        # Nákup 3,20 o 5 % výš je na rastru 3,35, tedy 0,15 nad nákupem krát 300
+        await self.engine.sell(position.id, "entry", SELL_SCOPE_ALL, markup_pct=5.0)
         self.assertIn("zisk 45 USD", position.message)
 
     async def test_ztrata_pri_prodeji_za_poptavku(self):
@@ -844,14 +844,14 @@ class TestVysledkuVHlasce(ZakladEnginu):
 
     async def test_preceneni_nese_vysledek_nove_ceny(self):
         position = await self.nakup_vyplnen(quantity=3)
-        await self.engine.sell(position.id, "ask", SELL_SCOPE_ALL, markup_pct=5.0)
+        await self.engine.sell(position.id, "entry", SELL_SCOPE_ALL, markup_pct=5.0)
         await self.engine.sell(position.id, "bid", SELL_SCOPE_ALL, reprice=True)
         self.assertIn("přeceněn", position.message)
         self.assertIn("ztráta 60 USD", position.message)
 
 
 class TestProdejNadPoptavkou(ZakladEnginu):
-    """Tlačítka ASK a ASK +1 % až +5 % nabízejí prodej nad středem trhu."""
+    """Tlačítko ASK prodává na poptávané ceně, MID na středu trhu."""
 
     async def test_prodej_za_ask(self):
         position = await self.nakup_vyplnen(quantity=3)
@@ -859,38 +859,54 @@ class TestProdejNadPoptavkou(ZakladEnginu):
         self.assertAlmostEqual(self.ib.placed[-1].order.lmtPrice, 3.20)
         self.assertIn("(ASK)", position.message)
 
-    async def test_prodej_s_prirazkou_zvedne_limit(self):
-        position = await self.nakup_vyplnen(quantity=3)
-        # ASK 3,20 zvednutý o 5 % je 3,36, na rastru 0,05 tedy 3,35
-        await self.engine.sell(position.id, "ask", SELL_SCOPE_ALL, markup_pct=5.0)
-        self.assertAlmostEqual(self.ib.placed[-1].order.lmtPrice, 3.35)
-        self.assertAlmostEqual(position.sell_markup_pct, 5.0)
-        self.assertIn("ASK +5 %", position.message)
-
-    async def test_prirazka_jde_i_u_zakladni_pozice(self):
-        position = await self.nakup_vyplnen(quantity=3)
-        await self.engine.sell(position.id, "ask", SELL_SCOPE_BASE, markup_pct=3.0)
-        prikaz = self.ib.placed[-1].order
-        self.assertEqual(prikaz.totalQuantity, 2)
-        # ASK 3,20 o 3 % výš je 3,296, na rastru 0,05 tedy 3,30
-        self.assertAlmostEqual(prikaz.lmtPrice, 3.30)
-
-    async def test_preceneni_umi_prejit_na_jinou_prirazku(self):
-        position = await self.nakup_vyplnen(quantity=3)
-        await self.engine.sell(position.id, "ask", SELL_SCOPE_ALL, markup_pct=5.0)
-        await self.engine.sell(
-            position.id, "ask", SELL_SCOPE_ALL, reprice=True, markup_pct=1.0
-        )
-        # ASK 3,20 o 1 % výš je 3,232, na rastru 0,05 tedy 3,25
-        self.assertAlmostEqual(position.sell_limit, 3.25)
-        self.assertAlmostEqual(position.sell_markup_pct, 1.0)
-        self.assertEqual(len(self.ib.placed), 2)
-
     async def test_prodej_bez_prirazky_zustava_na_stredu(self):
         position = await self.nakup_vyplnen(quantity=3)
         await self.engine.sell(position.id, "mid", SELL_SCOPE_ALL)
         self.assertAlmostEqual(self.ib.placed[-1].order.lmtPrice, 3.10)
         self.assertIn("(MID)", position.message)
+
+
+class TestProdejNadVstupniCenou(ZakladEnginu):
+    """
+    Přirážková tlačítka počítají limit z nákupní ceny pozice, ne z kotace.
+    Nákup se vyplní za 4,00, kotace náhrady TWS zůstává 3,00 / 3,20 - přirážka
+    nad ASK by tedy dala úplně jinou cenu než přirážka nad nákupem.
+    """
+
+    async def test_prirazka_zvedne_nakupni_cenu(self):
+        position = await self.nakup_vyplnen(quantity=3, cena=4.00)
+        # Nákup 4,00 o 5 % výš je 4,20, zisk 0,20 krát 300
+        await self.engine.sell(position.id, "entry", SELL_SCOPE_ALL, markup_pct=5.0)
+        self.assertAlmostEqual(self.ib.placed[-1].order.lmtPrice, 4.20)
+        self.assertAlmostEqual(position.sell_markup_pct, 5.0)
+        self.assertIn("VSTUP +5 %", position.message)
+        self.assertIn("zisk 60 USD", position.message)
+
+    async def test_prirazka_jde_i_u_zakladni_pozice(self):
+        position = await self.nakup_vyplnen(quantity=3, cena=4.00)
+        await self.engine.sell(position.id, "entry", SELL_SCOPE_BASE, markup_pct=3.0)
+        prikaz = self.ib.placed[-1].order
+        self.assertEqual(prikaz.totalQuantity, 2)
+        # Nákup 4,00 o 3 % výš je 4,12, na rastru 0,05 tedy 4,10
+        self.assertAlmostEqual(prikaz.lmtPrice, 4.10)
+
+    async def test_preceneni_umi_prejit_na_jinou_prirazku(self):
+        position = await self.nakup_vyplnen(quantity=3, cena=4.00)
+        await self.engine.sell(position.id, "entry", SELL_SCOPE_ALL, markup_pct=5.0)
+        await self.engine.sell(
+            position.id, "entry", SELL_SCOPE_ALL, reprice=True, markup_pct=1.0
+        )
+        # Nákup 4,00 o 1 % výš je 4,04, na rastru 0,05 tedy 4,05
+        self.assertAlmostEqual(position.sell_limit, 4.05)
+        self.assertAlmostEqual(position.sell_markup_pct, 1.0)
+        self.assertEqual(len(self.ib.placed), 2)
+
+    async def test_prirazka_nepotrebuje_kotaci(self):
+        # Vstupní cena je známá z vyplněného nákupu, výpadek kotace ji nemění
+        position = await self.nakup_vyplnen(quantity=3, cena=4.00)
+        self.ib.price_bid = self.ib.price_ask = None
+        await self.engine.sell(position.id, "entry", SELL_SCOPE_ALL, markup_pct=5.0)
+        self.assertAlmostEqual(self.ib.placed[-1].order.lmtPrice, 4.20)
 
 
 class TestUklidPrehledu(ZakladEnginu):

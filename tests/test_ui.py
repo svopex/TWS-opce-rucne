@@ -23,7 +23,7 @@ from tws_rucne.models import SELL_SCOPE_BASE
 from tws_rucne.ui import TradingUI, format_countdown
 
 # Přirážky nabízené tlačítky - stejné hodnoty, jaké vezme rozhraní z konfigurace
-ASK_MARKUPS = AppConfig().trading.ask_markups_pct
+ENTRY_MARKUPS = AppConfig().trading.entry_markups_pct
 
 
 class TestObsluhaTlacitek(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestObsluhaTlacitek(unittest.TestCase):
     def test_prodej_prijme_vse_co_karta_posila(self):
         # Karta předává: pozici, druh ceny, rozsah, příznak přecenění a přirážku
         inspect.signature(TradingUI.sell).bind(
-            None, "AAPL-1", "ask", SELL_SCOPE_BASE, True, 5.0
+            None, "AAPL-1", "entry", SELL_SCOPE_BASE, True, 5.0
         )
 
     def test_engine_prijme_od_rozhrani_totez(self):
@@ -58,22 +58,22 @@ class TestObsluhaTlacitek(unittest.TestCase):
 
 
 class TestNabizenePrirazky(unittest.TestCase):
-    """Každá přirážka z nabídky musí dávat vyšší cenu než samotná poptávka."""
+    """Každá přirážka z nabídky musí dávat vyšší cenu než samotný nákup."""
 
-    def test_prirazky_rostou_a_lezi_nad_poptavkou(self):
-        poptavka = calc.sell_limit_price("ask", 3.00, 3.20)
-        predchozi = poptavka
-        for prirazka in ASK_MARKUPS:
-            cena = calc.sell_limit_price("ask", 3.00, 3.20, 0.0, prirazka)
-            self.assertGreater(cena, poptavka)
+    def test_prirazky_rostou_a_lezi_nad_vstupni_cenou(self):
+        # Nákup 2,01 při kotaci 1,94 / 1,96 - pozice je ve ztrátě, přirážky
+        # přesto míří nad nákupní cenu, ne nad poptávku
+        predchozi = 2.01
+        for prirazka in ENTRY_MARKUPS:
+            cena = calc.sell_limit_price("entry", 1.94, 1.96, 0.0, prirazka, 2.01)
+            self.assertGreater(cena, 2.01)
             self.assertGreater(cena, predchozi - 1e-9)
             predchozi = cena
 
-    def test_nabidka_jde_od_nejjistejsiho_vyplneni_k_nejvyssi_cene(self):
+    def test_prodej_za_kotaci_jde_od_nejjistejsiho_vyplneni(self):
         ceny = [
-            calc.sell_limit_price(kind, 3.00, 3.20, 0.0, markup)
-            for kind, markup in [("bid", 0.0), ("mid", 0.0), ("ask", 0.0)]
-            + [("ask", p) for p in ASK_MARKUPS]
+            calc.sell_limit_price(kind, 3.00, 3.20)
+            for kind in ("bid", "mid", "ask")
         ]
         self.assertEqual(ceny, sorted(ceny))
 

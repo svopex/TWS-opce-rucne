@@ -17,9 +17,10 @@ OPTION_MULTIPLIER = 100
 
 # Druhy limitní ceny nabízené tlačítky rozhraní.
 # Prodávat lze i za ASK - kdo nespěchá, nechá příkaz čekat na poptávku
-# a spread nezaplatí, ale inkasuje.
+# a spread nezaplatí, ale inkasuje. Druh 'entry' prodává za vstupní
+# (nákupní) cenu pozice - s přirážkou tak míří na zadaný zisk.
 BUY_KINDS = ("ask", "mid")
-SELL_KINDS = ("bid", "mid", "ask")
+SELL_KINDS = ("bid", "mid", "ask", "entry")
 
 
 def is_price(value: float | None) -> bool:
@@ -97,18 +98,20 @@ def sell_limit_price(
     ask: float | None,
     bid_tolerance_pct: float = 0.0,
     markup_pct: float = 0.0,
+    entry_price: float | None = None,
 ) -> float | None:
     """
     Limitní cena prodeje podle zvoleného tlačítka.
 
     kind = 'bid' prodává na nabízené ceně (volitelně snížené o toleranci),
-    kind = 'mid' na středu trhu, kind = 'ask' na poptávané ceně.
-    Bez potřebné kotace vrací None.
+    kind = 'mid' na středu trhu, kind = 'ask' na poptávané ceně a
+    kind = 'entry' na vstupní ceně pozice (entry_price, průměrná cena nákupu).
+    Bez potřebné kotace, u 'entry' bez vstupní ceny, vrací None.
 
-    markup_pct zvedne výslednou cenu o zadaná procenta - tlačítka s přirážkou
-    nad poptávkou (nabídku určuje trading.ask_markups_pct v konfiguraci) tak
-    prodávají nad ASK: za kontrakt přijde víc peněz, ale příkaz se vyplní
-    s menší pravděpodobností.
+    markup_pct zvedne výslednou cenu o zadaná procenta. Tlačítka s přirážkou
+    nad vstupní cenou (nabídku určuje trading.entry_markups_pct v konfiguraci)
+    tak prodávají se ziskem daným procenty z nákupu, bez ohledu na to, kde
+    právě stojí kotace.
     """
     if kind == "bid":
         if not is_price(bid):
@@ -122,6 +125,11 @@ def sell_limit_price(
         if not is_price(ask):
             return None
         cena = ask
+    elif kind == "entry":
+        # Vstupní cena nezávisí na kotaci - chybí jen u nevyplněného nákupu
+        if not is_price(entry_price):
+            return None
+        cena = entry_price
     else:
         raise ValueError(f"Neznámý druh prodejní ceny: {kind}")
 

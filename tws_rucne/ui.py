@@ -222,17 +222,17 @@ class PositionCard:
         """
         Vykreslí řádek prodejních tlačítek pro daný rozsah pozice.
 
-        Nabídka jde od nejjistějšího vyplnění k nejvyšší ceně: BID, MID, ASK
-        a nad ním přirážky nad poptávkou (trading.ask_markups_pct v konfiguraci).
-        Čím výš, tím víc za kontrakt přijde, ale tím menší je šance, že se
-        příkaz vyplní. Vrací trojice (tlačítko, druh ceny, přirážka), ze kterých
-        se při každém překreslení obnovují popisky i ceny.
+        Nabídka začíná prodejem za kotaci - BID, MID, ASK - a pokračuje
+        přirážkami nad vstupní cenou pozice (trading.entry_markups_pct
+        v konfiguraci), které míří na zisk daný procenty z nákupu. Vrací trojice
+        (tlačítko, druh ceny, přirážka), ze kterých se při každém překreslení
+        obnovují popisky i ceny.
         """
         tlacitka: list[tuple[Any, Any, str, float]] = []
         varianty = [("bid", 0.0), ("mid", 0.0), ("ask", 0.0)]
         # Kolik tlačítek s přirážkou vznikne, určuje délka nabídky z enginu;
         # mřížka řádku si sloupce dopočítá sama
-        varianty += [("ask", p) for p in self.parent.engine.ask_markups_pct]
+        varianty += [("entry", p) for p in self.parent.engine.entry_markups_pct]
 
         for kind, markup in varianty:
             # Plnou barvou je jen první tlačítko, ostatní jsou obtažená -
@@ -670,7 +670,7 @@ class TradingUI:
         že pozice měla prodejní příkaz v trhu a stisk jej má jen přecenit.
         Vyplnil-li se mezitím, engine akci odmítne a nic se neprodá znovu.
         markup_pct je přirážka nad zvolenou cenou (tlačítka s přirážkou nad
-        ASK, nabídku určuje trading.ask_markups_pct v konfiguraci).
+        vstupní cenou, nabídku určuje trading.entry_markups_pct v konfiguraci).
         """
         if not self._zamek():
             return
@@ -984,11 +984,11 @@ class TradingUI:
         else:
             obsazene = "nepřeskakují se"
 
-        # Přirážky nad ASK: na tlačítkách je místo procent zisk, takže odstupy
-        # jednotlivých tlačítek by jinak v rozhraní nebyly vidět
+        # Přirážky nad vstupní cenou: na tlačítkách je místo procent zisk,
+        # takže odstupy jednotlivých tlačítek by jinak v rozhraní nebyly vidět
         prirazky = (
-            " | ".join(f"+{p:g} %" for p in t.ask_markups_pct)
-            if t.ask_markups_pct
+            " | ".join(f"+{p:g} %" for p in t.entry_markups_pct)
+            if t.entry_markups_pct
             else "nenabízejí se"
         )
 
@@ -998,7 +998,7 @@ class TradingUI:
             f"Obsazené strike: {obsazene}\n"
             f"Runner: {t.runner_quantity} ks | max. spread {t.max_spread_pct:g} %\n"
             f"Tolerance: ASK +{t.ask_tolerance_pct:g} % | BID -{t.bid_tolerance_pct:g} %\n"
-            f"Přirážky nad ASK: {prirazky}\n"
+            f"Přirážky nad vstupní cenou: {prirazky}\n"
             f"Platnost příkazů: {t.tif}"
         )
 

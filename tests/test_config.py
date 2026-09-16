@@ -95,41 +95,41 @@ class TestPrirazekNadAsk(unittest.TestCase):
 
     def test_desetinne_prirazky_projdou(self):
         cfg = AppConfig()
-        cfg.trading.ask_markups_pct = [0.5, 1.0, 1.5, 2.25]
+        cfg.trading.entry_markups_pct = [0.5, 1.0, 1.5, 2.25]
         validate_config(cfg)
 
     def test_prazdny_seznam_prirazky_vypne(self):
         cfg = AppConfig()
-        cfg.trading.ask_markups_pct = []
+        cfg.trading.entry_markups_pct = []
         validate_config(cfg)
 
     def test_jedine_cislo_misto_seznamu_neprojde(self):
         cfg = AppConfig()
-        cfg.trading.ask_markups_pct = 1.0
-        self.assertIn("ask_markups_pct", self._chyba(cfg))
+        cfg.trading.entry_markups_pct = 1.0
+        self.assertIn("entry_markups_pct", self._chyba(cfg))
 
     def test_zaporna_prirazka_neprojde(self):
-        # Prodej pod poptávanou cenou nabízí tlačítko BID, ne přirážka
+        # Prodej pod nákupní cenou nabízí tlačítko BID, ne přirážka
         cfg = AppConfig()
-        cfg.trading.ask_markups_pct = [1.0, -2.0]
-        self.assertIn("ask_markups_pct", self._chyba(cfg))
+        cfg.trading.entry_markups_pct = [1.0, -2.0]
+        self.assertIn("entry_markups_pct", self._chyba(cfg))
 
     def test_nula_neprojde(self):
-        # Nulová přirážka by jen zdvojila tlačítko ASK
+        # Nulová přirážka by jen prodávala za nákupní cenu bez zisku
         cfg = AppConfig()
-        cfg.trading.ask_markups_pct = [0.0]
-        self.assertIn("ask_markups_pct", self._chyba(cfg))
+        cfg.trading.entry_markups_pct = [0.0]
+        self.assertIn("entry_markups_pct", self._chyba(cfg))
 
     def test_text_misto_cisla_neprojde(self):
         cfg = AppConfig()
-        cfg.trading.ask_markups_pct = ["1 %"]
-        self.assertIn("ask_markups_pct", self._chyba(cfg))
+        cfg.trading.entry_markups_pct = ["1 %"]
+        self.assertIn("entry_markups_pct", self._chyba(cfg))
 
     def test_pravdivostni_hodnota_neprojde(self):
         # true je v Pythonu podtyp int a jinak by prošlo jako 1 %
         cfg = AppConfig()
-        cfg.trading.ask_markups_pct = [True]
-        self.assertIn("ask_markups_pct", self._chyba(cfg))
+        cfg.trading.entry_markups_pct = [True]
+        self.assertIn("entry_markups_pct", self._chyba(cfg))
 
 
 if __name__ == "__main__":

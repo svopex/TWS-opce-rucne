@@ -548,29 +548,31 @@ class ManualEngine:
         return None if cena is None else calc.round_to_tick(cena, position.min_tick)
 
     @property
-    def ask_markups_pct(self) -> list[float]:
+    def entry_markups_pct(self) -> list[float]:
         """
-        Přirážky nad poptávanou cenou nabízené prodejními tlačítky (v procentech).
+        Přirážky nad vstupní cenou nabízené prodejními tlačítky (v procentech).
 
         Rozhraní si nabídku bere odtud, ne z konfigurace: ceny tlačítek už
         počítá engine (position_sell_limit), takže obojí pochází z jednoho místa.
         """
-        return self.cfg.trading.ask_markups_pct
+        return self.cfg.trading.entry_markups_pct
 
     def position_sell_limit(
         self, position: Position, kind: str, markup_pct: float = 0.0
     ) -> float | None:
         """
         Limitní cena prodeje pro dané tlačítko podle aktuálních kotací pozice.
-        markup_pct je přirážka nad zvolenou cenou (tlačítka s přirážkou nad
-        ASK, nabídku určuje trading.ask_markups_pct v konfiguraci).
+        markup_pct je přirážka nad zvolenou cenou - u tlačítek s druhem 'entry'
+        nad vstupní cenou pozice (nabídku určuje trading.entry_markups_pct).
         """
+        # Vstupní cenou je průměrná cena vyplněného nákupu
         cena = calc.sell_limit_price(
             kind,
             position.option_bid,
             position.option_ask,
             self.cfg.trading.bid_tolerance_pct,
             markup_pct,
+            position.fill_price,
         )
         return None if cena is None else calc.round_to_tick(cena, position.min_tick)
 
@@ -888,12 +890,13 @@ class ManualEngine:
         """
         Zadá limitní prodejní příkaz na drženou pozici.
 
-        kind  = 'bid' prodává na nabízené ceně, 'mid' na středu trhu.
+        kind  = 'bid' prodává na nabízené ceně, 'mid' na středu trhu, 'ask'
+        na poptávané ceně a 'entry' na vstupní (nákupní) ceně pozice.
         scope = 'all' prodává celou drženou pozici, 'base' jen základní část,
         takže v trhu zůstane runner (počet kontraktů z konfigurace), a 'one'
         jediný kontrakt - pro odprodávání pozice po kusech.
         markup_pct zvedne limitní cenu o zadaná procenta nad zvolenou cenou -
-        prodej nad středem trhu vynese víc, ale vyplní se hůř.
+        s druhem 'entry' tak příkaz míří na zisk daný procenty z nákupu.
 
         reprice říká, že rozhraní vykreslilo tlačítko nad pozicí, která už
         prodejní příkaz v trhu měla. Opakovaný stisk pak příkaz jen přecení

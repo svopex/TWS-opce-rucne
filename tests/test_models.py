@@ -201,19 +201,20 @@ class TestPopiskyTlacitek(unittest.TestCase):
         runner = sell_button_text("bid", 1, 0.0, None, None)
         self.assertEqual(len(vse), len(runner))
 
-    def test_popisek_prirazky_nad_poptavkou(self):
+    def test_popisek_prirazky_nad_vstupni_cenou(self):
         # U přirážek se nepíše ani počet kusů, ani procenta - v řádku je počet
         # jasný z tlačítek vedle a o kolik jde, říká cena a zisk za popiskem
-        self.assertEqual(sell_button_text("ask", 3, 1.0, None, None), "ASK")
-        self.assertEqual(sell_button_text("ask", 2, 5.0, None, None), "ASK")
+        self.assertEqual(sell_button_text("entry", 3, 1.0, None, None), "VSTUP")
+        self.assertEqual(sell_button_text("entry", 2, 5.0, None, None), "VSTUP")
 
     def test_popis_ceny(self):
         self.assertEqual(price_kind_label("ask"), "ASK")
         self.assertEqual(price_kind_label("bid"), "BID")
         self.assertEqual(price_kind_label("mid"), "MID")
-        self.assertEqual(price_kind_label("ask", 2.0), "ASK +2 %")
+        self.assertEqual(price_kind_label("entry"), "VSTUP")
+        self.assertEqual(price_kind_label("entry", 2.0), "VSTUP +2 %")
         # Desetinná přirážka se nepíše se zbytečnou nulou
-        self.assertEqual(price_kind_label("ask", 2.5), "ASK +2.5 %")
+        self.assertEqual(price_kind_label("entry", 2.5), "VSTUP +2.5 %")
 
     def test_neznamy_druh_ceny_hlasi_srozumitelnou_chybu(self):
         # Stejně jako výpočty limitních cen, ne holým KeyError
@@ -274,7 +275,7 @@ class TestVysledkuNaTlacitku(unittest.TestCase):
     def test_cely_popisek_tlacitka_s_prirazkou(self):
         # Místo procent nese tlačítko cenu a zisk, počet kusů se nepíše
         self.assertEqual(
-            sell_button_text("ask", 2, 3.0, 3.30, 60.0), "ASK · 3.30 · +60 USD"
+            sell_button_text("entry", 2, 3.0, 3.30, 60.0), "VSTUP · 3.30 · +60 USD"
         )
 
     def test_popisek_bez_kotace_zustane_u_druhu_ceny(self):
