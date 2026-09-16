@@ -216,11 +216,10 @@ se spread naopak inkasuje a přirážky míří ještě výš.
 | třetí | tyrkysová | jediný kontrakt - pro odprodávání po kusech |
 
 Všechny řádky mají stejně široké sloupce, takže tlačítka téhož druhu leží
-přesně nad sebou; co které udělá, říká barva a pořadí řádku. Tlačítka jsou
-obtažená - plnou barvou se vykreslí jen to, kterým vznikl příkaz právě
-ležící v trhu (viz přecenění níže). Popisek začíná
-druhem ceny (u přirážky procenty, bez počtu kusů - ten je zřejmý z tlačítek
-vedle) a pokračuje částkou, se kterou příkaz skutečně půjde do trhu.
+přesně nad sebou; co které udělá, říká barva a pořadí řádku. Plnou barvou
+svítí jen tlačítko, jehož příkaz leží v trhu (viz přecenění níže). Popisek
+začíná druhem ceny (u přirážky procenty, bez počtu kusů - ten je zřejmý
+z tlačítek vedle) a pokračuje částkou, se kterou příkaz skutečně půjde do trhu.
 
 Řádek se nezobrazí, pokud by dělal totéž co jiný: u pozice o jednom kontraktu
 zbude jen ten první a prodej po kusech se nenabízí ani tehdy, když základní

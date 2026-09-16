@@ -275,25 +275,21 @@
   line-height: 1.35;
 }
 
-.radek-pozice-tlacitka {
+.radek-pozice-nakup {
   column-gap: 6px;
   flex-wrap: wrap;
   row-gap: 6px;
   width: 100%;
 }
 
-.radek-pozice-tlacitka .q-btn,
-.radek-prodej .q-btn {
-  font-size: 0.75rem;
-}
-
 /* Nákupní tlačítka na kartě pozice: husté (dense) tlačítko obepíná popisek
    těsně a cena pak naráží na obrys. Vnitřní okraj a minimální šířka jim
-   dávají místo kolem textu. */
-.radek-pozice-tlacitka .q-btn {
+   dávají místo kolem textu; číslice stejné šířky drží šířku při změně ceny. */
+.radek-pozice-nakup .q-btn {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
   min-width: 11rem;
-  padding-left: 14px;
-  padding-right: 14px;
+  padding-inline: 14px;
 }
 
 /* Prodejní tlačítka stojí v mřížce se stejně širokými sloupci, aby řádek
@@ -314,6 +310,7 @@
 }
 
 .radek-prodej .q-btn {
+  font-size: 0.75rem;
   /* Výška na dva řádky textu: kratší popisek tlačítko nesmrskne, takže se
      řádky pod ním neposouvají, když se popisek zalomí jinak */
   min-height: 2.4rem;

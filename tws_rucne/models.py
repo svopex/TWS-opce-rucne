@@ -320,18 +320,17 @@ class Position:
     def is_pressed_buy_button(self, kind: str) -> bool:
         """
         Nákupní příkaz v trhu vznikl (nebo byl naposledy přeceněn) tlačítkem
-        s tímto druhem ceny. Rozhraní takové tlačítko vykreslí plnou barvou.
+        s tímto druhem ceny - pro zvýraznění stisknutého tlačítka.
         """
         return self.can_reprice_buy and self.buy_kind == kind
 
     def is_pressed_sell_button(self, kind: str, scope: str, markup_pct: float = 0.0) -> bool:
         """
         Prodejní příkaz v trhu vznikl (nebo byl naposledy přeceněn) tlačítkem
-        s tímto druhem ceny, rozsahem a přirážkou. Rozhraní takové tlačítko
-        vykreslí plnou barvou.
+        s tímto druhem ceny, rozsahem a přirážkou - pro zvýraznění stisknutého
+        tlačítka.
         """
-        # Přecenění jiným tlačítkem přepíše všechny tři údaje, takže plné
-        # zůstane vždy jen jedno tlačítko
+        # Přecenění přepíše všechny tři údaje, shoda tak platí pro jediné tlačítko
         return self.sell_pending and (
             self.sell_kind,
             self.sell_scope,
