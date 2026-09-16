@@ -216,7 +216,9 @@ se spread naopak inkasuje a přirážky míří ještě výš.
 | třetí | tyrkysová | jediný kontrakt - pro odprodávání po kusech |
 
 Všechny řádky mají stejně široké sloupce, takže tlačítka téhož druhu leží
-přesně nad sebou; co které udělá, říká barva a pořadí řádku. Popisek začíná
+přesně nad sebou; co které udělá, říká barva a pořadí řádku. Tlačítka jsou
+obtažená - plnou barvou se vykreslí jen to, kterým vznikl příkaz právě
+ležící v trhu (viz přecenění níže). Popisek začíná
 druhem ceny (u přirážky procenty, bez počtu kusů - ten je zřejmý z tlačítek
 vedle) a pokračuje částkou, se kterou příkaz skutečně půjde do trhu.
 
@@ -279,8 +281,11 @@ na aktuální cenu (v TWS jde o modifikaci příkazu se stejným `orderId`).
 - U pozice s nevyplněným **prodejem** přecení příkaz kterékoliv prodejní
   tlačítko. Přejít lze i mezi řádky - z prodeje základní pozice na prodej
   všeho a zpět; příkaz se jen upraví, druhý nevzniká.
-- Tlačítka přitom vypadají stejně jako při novém příkazu. Že jde o přecenění,
-  řekne hláška pozice, která vypisuje, co v trhu leží.
+- Tlačítko, kterým vznikl příkaz v trhu, má plnou barvu; ostatní zůstávají
+  obtažená. Platí to na kartě pozice i ve formuláři, čeká-li na tickeru
+  nevyplněný nákup. Po přecenění jiným tlačítkem se zvýraznění přesune na něj
+  a po vyplnění nebo zrušení příkazu zmizí. Co přesně v trhu leží, vypisuje
+  hláška pozice.
 - Přecenění mění i **množství**: přepsáním pole ve formuláři a novým stiskem
   se upraví počet kontraktů nákupního příkazu.
 - **Částečně vyplněný příkaz se přecenit dá** - upraví se limit zbývajícího

@@ -287,6 +287,15 @@
   font-size: 0.75rem;
 }
 
+/* Nákupní tlačítka na kartě pozice: husté (dense) tlačítko obepíná popisek
+   těsně a cena pak naráží na obrys. Vnitřní okraj a minimální šířka jim
+   dávají místo kolem textu. */
+.radek-pozice-tlacitka .q-btn {
+  min-width: 11rem;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
 /* Prodejní tlačítka stojí v mřížce se stejně širokými sloupci, aby řádek
    s prodejem celé pozice a řádek se zachováním runneru ležely přesně nad
    sebou. Sloupce vznikají podle počtu tlačítek (grid-auto-flow: column),

@@ -33,6 +33,20 @@ RTT_VAROVANI_MS = 500.0
 STARI_KOTACI_VAROVANI_SEC = 15.0
 
 
+def mark_pressed(tlacitko: Any, pressed: bool) -> None:
+    """
+    Vykreslí tlačítko plnou barvou, pokud jím vznikl příkaz v trhu; jinak
+    zůstane jen obtažené.
+
+    NiceGUI props mění (a do prohlížeče posílá) jen při skutečné změně,
+    takže volání při každém překreslení karty nic zbytečně neodesílá.
+    """
+    if pressed:
+        tlacitko.props(remove="outline")
+    else:
+        tlacitko.props("outline")
+
+
 def stari_text(sekundy: float | None) -> str:
     """
     Stáří tržních dat pro hlavičku. Do deseti sekund se hodí desetina
@@ -194,10 +208,11 @@ class PositionCard:
             # celé pozice a teprve pod ním prodej se zachováním runneru.
             # Ceny BID a MID tak leží vedle sebe a rozsahy nad sebou.
             with ui.row().classes("radek-pozice-tlacitka") as self.radek_nakup:
-                # Přecenění nevyplněného nákupu na aktuální cenu
+                # Přecenění nevyplněného nákupu na aktuální cenu. Plnou barvou
+                # se vykreslí jen tlačítko, kterým příkaz vznikl (_update_buttons)
                 self.btn_nakup_ask = ui.button(
                     on_click=lambda: self.parent.reprice_buy(self.position_id, "ask")
-                ).props("dense color=primary")
+                ).props("dense outline color=primary")
                 self.btn_nakup_mid = ui.button(
                     on_click=lambda: self.parent.reprice_buy(self.position_id, "mid")
                 ).props("dense outline color=primary")
@@ -237,16 +252,15 @@ class PositionCard:
         ]
 
         for kind, markup in varianty:
-            # Plnou barvou je jen první tlačítko, ostatní jsou obtažená -
-            # jinak by řádek se sedmi barevnými plochami nešel přečíst
-            vzhled = "dense" if kind == "bid" else "dense outline"
+            # Všechna tlačítka začínají obtažená - plnou barvou se vykreslí
+            # jen to, kterým vznikl příkaz v trhu (_update_buttons).
             # Hodnoty se do obsluhy předávají výchozími argumenty, jinak by si
             # všechna tlačítka pamatovala poslední průchod cyklem
             tlacitko = ui.button(
                 on_click=lambda k=kind, m=markup: self.parent.sell(
                     self.position_id, k, scope, self.sell_reprice, m
                 )
-            ).props(f"{vzhled} color={barva}")
+            ).props(f"dense outline color={barva}")
             tlacitka.append((tlacitko, kind, markup))
 
         return tlacitka
@@ -300,6 +314,7 @@ class PositionCard:
             tlacitko.set_visibility(position.can_reprice_buy)
             if not position.can_reprice_buy:
                 continue
+            mark_pressed(tlacitko, position.is_pressed_buy_button(kind))
             limit = engine.position_buy_limit(position, kind)
             popisek = buy_button_label(kind, position.quantity)
             tlacitko.set_text(popisek if limit is None else f"{popisek} · {fmt(limit)}")
@@ -314,6 +329,8 @@ class PositionCard:
                 tlacitko.set_visibility(dostupne)
                 if not dostupne:
                     continue
+                # Plnou barvou jen tlačítko, kterým vznikl prodejní příkaz v trhu
+                mark_pressed(tlacitko, position.is_pressed_sell_button(kind, scope, markup))
                 limit = engine.position_sell_limit(position, kind, markup)
                 # Na tlačítku stojí druh ceny (u přirážky procenta), limitní
                 # cena a zisk či ztráta, kterou prodej tohoto množství přinese
@@ -499,9 +516,11 @@ class TradingUI:
             self.loading_label = ui.label("Načítám data z TWS…").classes("nahled-nacitani")
             self.loading_label.set_visibility(False)
 
+            # Obě tlačítka začínají obtažená - plnou barvou se vykreslí jen to,
+            # kterým vznikl čekající nákup na tickeru (_refresh_buy_buttons)
             with ui.row().classes("radek-tlacitka-nakup"):
                 self.btn_ask = ui.button(on_click=lambda: self.buy("ask")).props(
-                    "dense color=primary"
+                    "dense outline color=primary"
                 )
                 self.btn_mid = ui.button(on_click=lambda: self.buy("mid")).props(
                     "dense outline color=primary"
@@ -810,6 +829,11 @@ class TradingUI:
             else:
                 limit = self.engine.preview_buy_limit(kind) if nahled else None
             tlacitko.set_text(popisek if limit is None else f"{popisek} · {fmt(limit)}")
+            # Plnou barvou jen tlačítko, kterým vznikl čekající nákup - stejně
+            # jako na kartě pozice, kterou tlačítka formuláře přeceňují
+            mark_pressed(
+                tlacitko, cekajici is not None and cekajici.is_pressed_buy_button(kind)
+            )
             # Bez spojení nebo bez tickeru nemá nákup smysl
             tlacitko.set_enabled(bool(symbol) and self.ib.connected)
 

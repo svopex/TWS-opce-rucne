@@ -93,6 +93,30 @@ class TestDostupnostTlacitek(unittest.TestCase):
         # Otevřená pozice už nákupní příkaz v trhu nemá
         self.assertFalse(pozice().can_reprice_buy)
 
+    def test_stisknute_prodejni_tlacitko(self):
+        # Zvýrazní se jen tlačítko, kterým příkaz vznikl - druh, rozsah i přirážka
+        p = pozice()
+        p.state = PositionState.SELLING
+        p.sell_kind, p.sell_scope, p.sell_markup_pct = "markup", SELL_SCOPE_ALL, 5.0
+        self.assertTrue(p.is_pressed_sell_button("markup", SELL_SCOPE_ALL, 5.0))
+        self.assertFalse(p.is_pressed_sell_button("markup", SELL_SCOPE_ALL, 3.0))
+        self.assertFalse(p.is_pressed_sell_button("markup", SELL_SCOPE_BASE, 5.0))
+        self.assertFalse(p.is_pressed_sell_button("bid", SELL_SCOPE_ALL))
+
+    def test_bez_prikazu_v_trhu_neni_nic_stisknuto(self):
+        # Po vyplnění prodeje zůstávají údaje o příkazu, zvýraznění ale mizí
+        p = pozice()
+        p.sell_kind, p.sell_scope = "bid", SELL_SCOPE_ALL
+        self.assertFalse(p.is_pressed_sell_button("bid", SELL_SCOPE_ALL))
+        self.assertFalse(p.is_pressed_buy_button("ask"))
+
+    def test_stisknute_nakupni_tlacitko(self):
+        p = pozice(filled=0)
+        p.state = PositionState.BUYING
+        p.buy_kind = "mid"
+        self.assertTrue(p.is_pressed_buy_button("mid"))
+        self.assertFalse(p.is_pressed_buy_button("ask"))
+
     def test_uzavrenou_pozici_lze_odstranit_z_prehledu(self):
         p = pozice(sold=3)
         p.state = PositionState.CLOSED
