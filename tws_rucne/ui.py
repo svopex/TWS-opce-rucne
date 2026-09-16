@@ -219,17 +219,16 @@ class PositionCard:
             with self.radek_prodej_kus:
                 self.btn_kus = self._sell_buttons(SELL_SCOPE_ONE, "teal-7")
 
-    def _sell_buttons(self, scope: str, barva: str) -> list[tuple[Any, Any, str, float]]:
+    def _sell_buttons(self, scope: str, barva: str) -> list[tuple[Any, str, float]]:
         """
         Vykreslí řádek prodejních tlačítek pro daný rozsah pozice.
 
         Nabídka začíná prodejem za kotaci - BID, MID, ASK - a pokračuje
-        přirážkami (trading.sell_markups_pct v konfiguraci) nad vyšší z cen
-        vstup / ASK, takže řada cen zleva doprava vždy roste. Vrací trojice
-        (tlačítko, druh ceny, přirážka), ze kterých se při každém překreslení
-        obnovují popisky i ceny.
+        přirážkami z konfigurace (trading.sell_markups_pct, základ viz
+        calc.markup_sell_price). Vrací trojice (tlačítko, druh ceny, přirážka),
+        ze kterých se při každém překreslení obnovují popisky i ceny.
         """
-        tlacitka: list[tuple[Any, Any, str, float]] = []
+        tlacitka: list[tuple[Any, str, float]] = []
         varianty = [(kind, 0.0) for kind in calc.QUOTE_SELL_KINDS]
         # Kolik tlačítek s přirážkou vznikne, určuje délka nabídky z enginu;
         # mřížka řádku si sloupce dopočítá sama
@@ -322,9 +321,9 @@ class PositionCard:
                     sell_button_text(
                         kind,
                         mnozstvi,
-                        markup,
                         limit,
                         position.sell_pnl_at(limit, mnozstvi),
+                        markup,
                     )
                 )
                 tlacitko.set_enabled(limit is not None)
@@ -990,8 +989,8 @@ class TradingUI:
         # Přirážky i s tím, od čeho se počítají - z tlačítek samotných
         # základ vidět není
         prirazky = (
-            " | ".join(markup_text(p) for p in t.sell_markups_pct)
-            if t.sell_markups_pct
+            " | ".join(markup_text(p) for p in self.engine.sell_markups_pct)
+            if self.engine.sell_markups_pct
             else "nenabízejí se"
         )
 

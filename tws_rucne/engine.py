@@ -563,8 +563,8 @@ class ManualEngine:
         """
         Limitní cena prodeje pro dané tlačítko, zaokrouhlená na tik kontraktu.
 
-        Druh 'markup' prodává s přirážkou markup_pct nad vyšší z cen vstup / ASK,
-        ostatní druhy za aktuální kotaci pozice (přirážku nemají).
+        Druh 'markup' prodává s přirážkou markup_pct (základ viz
+        calc.markup_sell_price), ostatní druhy za aktuální kotaci pozice.
         """
         if kind == calc.MARKUP_SELL_KIND:
             cena = calc.markup_sell_price(

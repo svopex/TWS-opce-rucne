@@ -547,16 +547,16 @@ def markup_text(markup_pct: float) -> str:
 
 def price_kind_label(kind: str, markup_pct: float = 0.0) -> str:
     """
-    Popis ceny příkazu: 'ASK', 'BID', 'MID', nebo s přirážkou 'přirážka +1 %'.
-    Přirážka se píše jen tehdy, když je nenulová.
+    Popis ceny příkazu: 'ASK', 'BID', 'MID', u přirážky 'přirážka +1 %'.
+    markup_pct se čte jen u druhu 'markup' - ceny za kotaci přirážku nemají.
     """
-    nazev = {"ask": "ASK", "bid": "BID", "mid": "MID", "markup": "přirážka"}.get(kind)
+    if kind == calc.MARKUP_SELL_KIND:
+        return f"přirážka {markup_text(markup_pct)}"
+    nazev = {"ask": "ASK", "bid": "BID", "mid": "MID"}.get(kind)
     # Srozumitelná chyba místo holého KeyError - stejně jako v calc.*_limit_price
     if nazev is None:
         raise ValueError(f"Neznámý druh ceny: {kind}")
-    if not markup_pct:
-        return nazev
-    return f"{nazev} {markup_text(markup_pct)}"
+    return nazev
 
 
 def buy_button_label(kind: str, quantity: int) -> str:
@@ -584,9 +584,9 @@ def order_pnl_text(pnl: float | None) -> str:
 def sell_button_text(
     kind: str,
     quantity: int,
-    markup_pct: float,
     limit: float | None,
     pnl: float | None,
+    markup_pct: float = 0.0,
 ) -> str:
     """
     Popisek prodejního tlačítka: druh ceny, limitní cena a výsledek prodeje -

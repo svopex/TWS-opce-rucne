@@ -202,11 +202,8 @@ Prodejní příkaz přeceněn: 3 ks za LMT 3.00 (BID), ztráta 60 USD.
 ```
 
 Ve větě nese znaménko slovo (`zisk` / `ztráta`), prodej za nákupní cenu se
-hlásí jako `bez zisku i ztráty`. Procenta přirážky v zápisu zůstávají -
-bez nich by se zpětně nedalo poznat, které tlačítko příkaz zadalo.
-
-Tlačítko s přirážkou nese místo druhu ceny procenta a počet kusů se na něj
-nepíše - je zřejmý z tlačítek vedle.
+hlásí jako `bez zisku i ztráty`. Přirážka se v zápisu píše se slovem
+(`přirážka +1 %`), aby bylo zpětně poznat, které tlačítko příkaz zadalo.
 
 Nabídka jde zleva doprava od nejjistějšího vyplnění k nejvyšší ceně: na BID
 se prodá hned a zaplatí se celý spread, na MID se čeká na střed trhu, na ASK
@@ -220,8 +217,8 @@ se spread naopak inkasuje a přirážky míří ještě výš.
 
 Všechny řádky mají stejně široké sloupce, takže tlačítka téhož druhu leží
 přesně nad sebou; co které udělá, říká barva a pořadí řádku. Popisek začíná
-druhem ceny (u přirážky procenty) a pokračuje částkou, se kterou příkaz
-skutečně půjde do trhu.
+druhem ceny (u přirážky procenty, bez počtu kusů - ten je zřejmý z tlačítek
+vedle) a pokračuje částkou, se kterou příkaz skutečně půjde do trhu.
 
 Řádek se nezobrazí, pokud by dělal totéž co jiný: u pozice o jednom kontraktu
 zbude jen ten první a prodej po kusech se nenabízí ani tehdy, když základní

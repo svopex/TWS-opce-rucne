@@ -66,9 +66,8 @@ class TradingConfig:
     # Tolerance pod BID v procentech pro prodej "za BID"
     bid_tolerance_pct: float = 0.0
     # Prodejní přirážky v procentech (i desetinná místa). Každá hodnota přidá
-    # do řádku jedno prodejní tlačítko, které prodává s přirážkou nad vyšší
-    # z cen vstup / ASK - ve ztrátě tedy nad nákupní cenou, v zisku nad trhem.
-    # Pořadí v seznamu je pořadím tlačítek zleva doprava.
+    # do řádku jedno prodejní tlačítko (základ viz calc.markup_sell_price);
+    # pořadí v seznamu je pořadím tlačítek zleva doprava.
     sell_markups_pct: list[float] = field(
         default_factory=lambda: list(DEFAULT_SELL_MARKUPS_PCT)
     )
