@@ -130,6 +130,32 @@ Při odezvě nad 500 ms se ukazatel zvýrazní žlutě; stojící kotace (nad 15
 se hlásí jen během seance - mimo obchodní hodiny trh nic neposílá a varování
 by svítilo pořád. Bez spojení se ukazatel skrývá.
 
+Za ukazatelem stojí **Order Efficiency Ratio** dne (`OER 3,4`). Interactive
+Brokers za každý obchodní den porovnává, kolik zpráv účet do systému pošle,
+s tím, kolik z nich vede k obchodu:
+
+```text
+OER = (odeslané příkazy + úpravy + zrušení) / (vyplněné příkazy + 1)
+```
+
+IBKR očekává hodnotu nejvýš kolem 20; při vyšší posílá varování a při
+opakování omezuje obchodování. Podle zkušeností obchodníků (neoficiální)
+to začíná vadit až u tisíců zpráv denně. Údaj je jen informativní -
+aplikace podle něj nic neomezuje.
+
+- **Zprávy** jsou nové příkazy, jejich přecenění (úprava téhož příkazu)
+  i zrušení, které tato aplikace do TWS odeslala.
+- **Vyplněné příkazy** jsou příkazy aplikace s aspoň jednou exekucí dne;
+  částečně vyplněný příkaz se počítá jednou. Seznam exekucí dne pošle TWS
+  po připojení, takže se neukládají.
+- Den se určuje v časové zóně burzy (`trading.exchange_timezone`); s novým
+  dnem se počítadlo zpráv nuluje. Ukládá se do `state.json` spolu s pozicemi,
+  takže ho restart během seance nevynuluje.
+
+IBKR počítá poměr za celý účet. Zprávy druhé aplikace nebo příkazy zadané
+ručně v TWS aplikace nevidí, proto je vynechává i mezi vyplněnými. Tooltip
+nad údajem ukazuje počty, ze kterých poměr vyšel. Bez spojení se skrývá.
+
 Mimo obchodní hodiny se v hlavičce ukazuje odpočet do nejbližšího otevření
 burzy (`Otevření trhu za ...`). Časuje se v časové zóně burzy podle voleb
 `trading.exchange_timezone`, `exchange_open_time` a `exchange_close_time`,
@@ -588,6 +614,7 @@ pruhu nahoře. Aplikace k nim sama nic nezadává - patří do TWS.
 | `tws_rucne/ib_service.py` | obálka nad `ib_async` - spojení, kontrakty, data, příkazy |
 | `tws_rucne/engine.py` | obchodní logika a monitorovací smyčka |
 | `tws_rucne/store.py` | ukládání a načítání stavu |
+| `tws_rucne/oer.py` | denní počítadlo Order Efficiency Ratio (zprávy do TWS / vyplnění) |
 | `tws_rucne/report.py` | výpočet souhrnu obchodního dne (bez vykreslování) |
 | `tws_rucne/report_dialog.py` | popup s přehledem výsledků - dlaždice, seznamy, grafy |
 | `tws_rucne/ui.py` | webové rozhraní (NiceGUI) |

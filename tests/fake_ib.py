@@ -193,7 +193,7 @@ class FakeIBService(IBService):
 
     # --- příkazy ---
 
-    def place(self, contract: Contract, order) -> Trade:
+    def _submit(self, contract: Contract, order) -> Trade:
         """
         Zaznamená odeslaný příkaz. Opakované odeslání se stejným orderId
         znamená modifikaci, proto se vrací původní záznam s novým příkazem.
@@ -217,13 +217,8 @@ class FakeIBService(IBService):
         self.placed.append(trade)
         return trade
 
-    def cancel(self, trade: Trade | None) -> None:
+    def _submit_cancel(self, trade: Trade) -> None:
         """Zaznamená zrušení příkazu a nastaví odpovídající stav."""
-        if trade is None:
-            return
-        # Stejné omezení jako v ostré službě - neaktivní příkaz se neruší
-        if trade.orderStatus.status not in OrderStatus.ActiveStates:
-            return
         trade.orderStatus.status = "Cancelled"
         self.cancelled.append(trade)
 
@@ -282,7 +277,9 @@ class FakeIBService(IBService):
         vyzkoušet i účtování po částech.
         """
         exec_id = f"EXEC-{len(self.fills) + 1}"
-        execution = Execution(execId=exec_id, orderRef=trade.order.orderRef)
+        execution = Execution(
+            execId=exec_id, orderId=trade.order.orderId, orderRef=trade.order.orderRef
+        )
         self.fills.append(
             Fill(
                 contract=trade.contract,

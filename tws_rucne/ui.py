@@ -13,6 +13,7 @@ from . import calc
 from .config import AppConfig
 from .engine import ManualEngine, Preview
 from .ib_service import IBService
+from .oer import efficiency_ratio
 from .report_dialog import ReportDialog
 from .models import (
     SELL_SCOPE_ALL,
@@ -88,6 +89,20 @@ def stav_linky_text(rtt_ms: float | None, stari_sec: float | None) -> str:
     """
     odezva = f"{rtt_ms:.1f} ms".replace(".", ",") if rtt_ms is not None else "-"
     return f"TWS {odezva} · data {stari_text(stari_sec)}"
+
+
+def oer_text(ratio: float) -> str:
+    """Order Efficiency Ratio dne do hlavičky, například 'OER 3,4'."""
+    return f"OER {ratio:.1f}".replace(".", ",")
+
+
+def oer_popis(messages: int, executed: int) -> str:
+    """Tooltip k OER v hlavičce - vzorec IBKR s dnešními počty aplikace."""
+    return (
+        f"Order Efficiency Ratio (IBKR očekává nejvýš kolem 20) = zprávy "
+        f"{messages} / (vyplněné příkazy {executed} + 1). "
+        f"Počítají se jen příkazy této aplikace."
+    )
 
 
 def linka_varuje(
@@ -449,6 +464,12 @@ class TradingUI:
             # spojení nejen stojí, ale i žije - odpojené se skrývá
             self.link_label = ui.label().classes("stav-linky")
             self.link_label.set_visibility(False)
+            # Order Efficiency Ratio dne - kolik zpráv do TWS připadá na
+            # vyplněný příkaz; tooltip nese počty, ze kterých poměr vyšel
+            self.oer_label = ui.label().classes("stav-linky stav-oer")
+            self.oer_label.set_visibility(False)
+            with self.oer_label:
+                self.oer_tip = ui.tooltip("")
             self.connect_button = ui.button("Připojit", on_click=self._toggle_connection).props(
                 "flat"
             )
@@ -879,6 +900,7 @@ class TradingUI:
             self.status_label.classes(replace="stav-spojeni spojeni-chyba")
             self.connect_button.set_text("Připojit")
         self._refresh_link()
+        self._refresh_oer()
 
     def _refresh_link(self) -> None:
         """
@@ -899,6 +921,21 @@ class TradingUI:
             self.link_label.classes(add="linka-varovani")
         else:
             self.link_label.classes(remove="linka-varovani")
+
+    def _refresh_oer(self) -> None:
+        """
+        Order Efficiency Ratio dne v hlavičce - jen údaj, nic neomezuje.
+        Bez spojení se skrývá: vyplněné příkazy dne pošle TWS až po připojení.
+        """
+        self.oer_label.set_visibility(self.ib.connected)
+        if not self.ib.connected:
+            return
+        # Vyplněné příkazy se počítají průchodem přes všechna vyplnění dne,
+        # proto se čtou jen jednou a poměr se skládá z nich
+        oer = self.ib.oer
+        zpravy, vyplnene = oer.messages, oer.executed
+        self.oer_label.set_text(oer_text(efficiency_ratio(zpravy, vyplnene)))
+        self.oer_tip.set_text(oer_popis(zpravy, vyplnene))
 
     async def _measure_link(self) -> None:
         """

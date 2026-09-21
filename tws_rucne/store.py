@@ -102,18 +102,24 @@ def dict_to_position(data: dict[str, Any]) -> Position:
     return position
 
 
-def save(positions: list[Position], path: str | Path) -> None:
+def save(
+    positions: list[Position],
+    path: str | Path,
+    order_stats: dict[str, Any] | None = None,
+) -> None:
     """
-    Uloží stav pozic do souboru.
+    Uloží stav pozic a počítadlo zpráv OER (order_stats, viz oer.py) do souboru.
     Zápis probíhá přes dočasný soubor a přejmenování, aby při pádu aplikace
     nezůstal soubor rozepsaný.
     """
     cesta = Path(path)
-    obsah = {
+    obsah: dict[str, Any] = {
         "version": FORMAT_VERSION,
         "saved_at": datetime.now().isoformat(),
         "positions": [position_to_dict(p) for p in positions],
     }
+    if order_stats is not None:
+        obsah["order_stats"] = order_stats
 
     docasny = ""
     try:
@@ -140,30 +146,36 @@ def save(positions: list[Position], path: str | Path) -> None:
 
 
 def load(path: str | Path) -> list[Position]:
+    """Načte uložené pozice (viz load_state)."""
+    return load_state(path)[0]
+
+
+def load_state(path: str | Path) -> tuple[list[Position], dict[str, Any] | None]:
     """
-    Načte uložený stav pozic.
-    Chybějící, poškozený nebo neznámou verzí zapsaný soubor vrací prázdný seznam.
+    Načte uložené pozice a počítadlo zpráv OER (neověřené - kontroluje ho
+    OrderEfficiency.load). Chybějící, poškozený nebo neznámou verzí zapsaný
+    soubor vrací prázdný seznam a None.
     """
     cesta = Path(path)
     if not cesta.exists():
-        return []
+        return [], None
 
     try:
         with cesta.open("r", encoding="utf-8") as fh:
             obsah = json.load(fh)
     except Exception:
         log.exception("Uložený stav v %s se nepodařilo načíst.", cesta)
-        return []
+        return [], None
 
     # Platný JSON ještě nemusí být slovník - po ručním zásahu může soubor
     # obsahovat třeba prázdné pole a čtení verze by skončilo AttributeError
     if not isinstance(obsah, dict):
         log.warning("Uložený stav v %s není slovník - ignoruji jej.", cesta)
-        return []
+        return [], None
 
     if obsah.get("version") != FORMAT_VERSION:
         log.warning("Uložený stav v %s má neznámou verzi formátu - ignoruji jej.", cesta)
-        return []
+        return [], None
 
     pozice: list[Position] = []
     for zaznam in obsah.get("positions", []):
@@ -171,4 +183,4 @@ def load(path: str | Path) -> list[Position]:
             pozice.append(dict_to_position(zaznam))
         except Exception:
             log.exception("Pozici se nepodařilo obnovit: %s", zaznam)
-    return pozice
+    return pozice, obsah.get("order_stats")

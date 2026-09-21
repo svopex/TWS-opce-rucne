@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ib_async import (
     IB,
@@ -28,6 +29,7 @@ from ib_async import (
 )
 
 from .config import AppConfig
+from .oer import OrderEfficiency
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +118,11 @@ class IBService:
         # zatím neměřilo, nebo že poslední pokus neuspěl. Drží se tady, aby
         # ji synchronní obnova hlavičky mohla jen přečíst
         self.rtt_ms: float | None = None
+        # Denní Order Efficiency Ratio - zprávy započítávají place() a cancel(),
+        # vyplněné příkazy si počítadlo čte z vyplnění příkazů aplikace
+        self.oer = OrderEfficiency(
+            ZoneInfo(cfg.trading.exchange_timezone), fills=self._app_fills
+        )
 
         self.ib.disconnectedEvent += self._on_disconnected
         self.ib.errorEvent += self._on_error
@@ -517,21 +524,37 @@ class IBService:
         return self._finish_order(LimitOrder("SELL", quantity, limit_price), ref)
 
     def place(self, contract: Contract, order: Order) -> Trade:
-        """Odešle příkaz do TWS a vrátí objekt sledující jeho stav."""
+        """
+        Odešle příkaz do TWS a vrátí objekt sledující jeho stav. Nový příkaz
+        i úprava (odeslání se stejným orderId) jsou jedna zpráva do OER.
+        """
+        trade = self._submit(contract, order)
+        self.oer.record_message()
+        return trade
+
+    def _submit(self, contract: Contract, order: Order) -> Trade:
+        """Vlastní odeslání příkazu do TWS - vyčleněno kvůli testům."""
         return self.ib.placeOrder(contract, order)
 
     def cancel(self, trade: Trade | None) -> None:
         """Zruší dříve zadaný příkaz, pokud je v TWS ještě aktivní."""
-        if trade is None or not self.ib.isConnected():
+        if trade is None or not self.connected:
             return
         # Vyplněný, zrušený i rušený příkaz TWS odmítá hlášením,
         # které by uživateli vyskočilo na obrazovku
         if trade.orderStatus.status not in OrderStatus.ActiveStates:
             return
         try:
-            self.ib.cancelOrder(trade.order)
+            self._submit_cancel(trade)
         except Exception:
             log.exception("Příkaz orderId=%s se nepodařilo zrušit.", trade.order.orderId)
+            return
+        # Zrušení je pro IBKR další zpráva, započte se do OER
+        self.oer.record_message()
+
+    def _submit_cancel(self, trade: Trade) -> None:
+        """Vlastní odeslání zrušení do TWS - vyčleněno kvůli testům."""
+        self.ib.cancelOrder(trade.order)
 
     async def _reload_open_orders(self, kde: str) -> bool:
         """
@@ -631,6 +654,19 @@ class IBService:
         Vyčleněno do vlastní metody kvůli testům, které TWS nahrazují.
         """
         return list(self.ib.fills())
+
+    def _app_fills(self) -> list[Fill]:
+        """
+        Vyplnění příkazů této aplikace (podle značky v orderRef).
+
+        Pro OER se počítají jen vlastní vyplnění, protože i zprávy se počítají
+        jen vlastní - cizí vyplnění by poměr aplikace uměle snižovala.
+        """
+        return [
+            fill
+            for fill in self._raw_fills()
+            if parse_order_ref(fill.execution.orderRef or "") is not None
+        ]
 
     def commissions(self) -> dict[str, dict[str, tuple[str, float]]]:
         """

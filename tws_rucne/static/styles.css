@@ -45,6 +45,11 @@
   font-weight: 600;
 }
 
+/* Order Efficiency Ratio dne - vzhled přebírá od .stav-linky, nese tooltip */
+.stav-oer {
+  cursor: default;
+}
+
 /* Odpočet do otevření burzy - zobrazuje se mimo obchodní hodiny */
 .odpocet-otevreni {
   color: #cbd5e1;

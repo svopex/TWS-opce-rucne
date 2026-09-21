@@ -186,10 +186,14 @@ class ManualEngine:
         log.info(message)
 
     def _persist(self) -> None:
-        """Uloží stav pozic na disk, je-li ukládání zapnuté."""
+        """Uloží stav pozic a počítadlo zpráv OER na disk, je-li ukládání zapnuté."""
         if not self.cfg.state.enabled:
             return
-        store.save(list(self.positions.values()), self.cfg.state.file)
+        store.save(
+            list(self.positions.values()),
+            self.cfg.state.file,
+            order_stats=self.ib.oer.to_dict(),
+        )
 
     @property
     def is_monitoring(self) -> bool:
@@ -1602,7 +1606,9 @@ class ManualEngine:
         if not self._restored:
             self._restored = True
             if self.cfg.state.enabled:
-                ulozene = store.load(self.cfg.state.file)
+                ulozene, statistiky = store.load_state(self.cfg.state.file)
+                # Zprávy odeslané dříve téhož dne se dál počítají do OER
+                self.ib.oer.load(statistiky)
                 if ulozene:
                     self.log_event(
                         f"Obnovuji {len(ulozene)} uložených pozic a ověřuji je v TWS."
