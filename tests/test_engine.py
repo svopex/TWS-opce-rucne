@@ -16,6 +16,7 @@ from tws_rucne.models import (
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
     SELL_SCOPE_ONE,
+    SELL_SCOPE_THREE,
     PositionState,
 )
 
@@ -948,6 +949,13 @@ class TestProdejPoKusech(ZakladEnginu):
         await self.prodej_vyplnen(position, "bid", SELL_SCOPE_ONE, cena=3.60)
         self.assertEqual(self.ib.placed[-1].order.totalQuantity, 1)
         self.assertEqual(position.open_quantity, 3)
+        self.assertEqual(position.state, PositionState.OPEN)
+
+    async def test_prodej_tri_kusu(self):
+        position = await self.nakup_vyplnen(quantity=10)
+        await self.prodej_vyplnen(position, "bid", SELL_SCOPE_THREE, cena=3.60)
+        self.assertEqual(self.ib.placed[-1].order.totalQuantity, 3)
+        self.assertEqual(position.open_quantity, 7)
         self.assertEqual(position.state, PositionState.OPEN)
 
     async def test_opakovanym_prodejem_lze_pozici_vyprodat(self):

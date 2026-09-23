@@ -45,7 +45,8 @@ vzniká výhradně stiskem tlačítka.
 3. Tlačítky **Koupit za ASK** nebo **Koupit za MID** zadáte limitní nákupní
    příkaz.
 4. Po nakoupení nabídne pozice tlačítka pro prodej: celé pozice, její
-   základní části (v trhu zůstane **runner**), nebo jediného kontraktu.
+   základní části (v trhu zůstane **runner**), nebo pevného počtu 1, 2 či 3
+   kontraktů.
 
 Všechny příkazy jsou limitní. Cena se bere z aktuální kotace v okamžiku
 stisku tlačítka a zaokrouhluje se na minimální tik kontraktu.
@@ -202,9 +203,10 @@ Na tlačítku je vždy vidět cena, se kterou příkaz do trhu půjde - napřík
 
 ### Prodej a runner
 
-Po vyplnění nákupu nabídne karta pozice tři řádky tlačítek, které se liší
-jen množstvím. U pozice se třemi kontrakty nakoupenými za 3.20, runnerem 1 ks
-a kotací BID 3.10 / ASK 3.20 vypadají takto:
+Po vyplnění nákupu nabídne karta pozice až pět řádků tlačítek, které se liší
+jen množstvím: celá pozice, základní pozice a pevně 3, 2 a 1 ks. U pozice
+se třemi kontrakty nakoupenými za 3.20, runnerem 1 ks a kotací BID 3.10 /
+ASK 3.20 vypadají takto:
 
 ```
 BID (3 ks) · 3.10 · -30 USD   MID (3 ks) · 3.15 · -15 USD   ASK (3 ks) · 3.20 · 0 USD   +1 % · 3.23 · +9 USD   +2 % · 3.26 · +18 USD   …
@@ -239,7 +241,9 @@ se spread naopak inkasuje a přirážky míří ještě výš.
 | --- | --- | --- |
 | první | červená | celou drženou pozici |
 | druhý | oranžová | základní pozici, v trhu zůstane runner |
-| třetí | tyrkysová | jediný kontrakt - pro odprodávání po kusech |
+| třetí | světle modrá | tři kontrakty |
+| čtvrtý | azurová | dva kontrakty |
+| pátý | tyrkysová | jediný kontrakt - pro odprodávání po kusech |
 
 Všechny řádky mají stejně široké sloupce, takže tlačítka téhož druhu leží
 přesně nad sebou; co které udělá, říká barva a pořadí řádku. Plnou barvou
@@ -248,8 +252,10 @@ začíná druhem ceny (u přirážky procenty, bez počtu kusů - ten je zřejm�
 z tlačítek vedle) a pokračuje částkou, se kterou příkaz skutečně půjde do trhu.
 
 Řádek se nezobrazí, pokud by dělal totéž co jiný: u pozice o jednom kontraktu
-zbude jen ten první a prodej po kusech se nenabízí ani tehdy, když základní
-pozice vychází právě na jeden kus.
+zbude jen ten první. Řádek s pevným počtem kusů se ukáže, jen když pozice drží
+víc kusů, než kolik prodává, a základní pozice nevychází na stejný počet.
+U deseti kontraktů s runnerem 1 jsou tak vidět řádky 10, 9, 3, 2 a 1 ks,
+u tří kontraktů jen 3, 2 a 1 ks.
 
 **Přirážky** se počítají z vyšší z cen vstup / ASK, zisk na tlačítku je
 vždy proti nákupní ceně:

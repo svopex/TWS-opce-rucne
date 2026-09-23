@@ -13,10 +13,24 @@ from . import calc
 RIGHT_LABELS = {"C": "CALL", "P": "PUT"}
 
 # Rozsah prodeje: celá držená pozice, základní část bez runneru,
-# nebo jediný kontrakt - pro postupné odprodávání po kusech
+# nebo pevný počet kontraktů (1, 2, 3) - pro postupné odprodávání po kusech
 SELL_SCOPE_ALL = "all"
 SELL_SCOPE_BASE = "base"
 SELL_SCOPE_ONE = "one"
+SELL_SCOPE_TWO = "two"
+SELL_SCOPE_THREE = "three"
+
+# Rozsahy s pevným počtem kusů a jejich množství; pořadí určuje i pořadí
+# řádků prodejních tlačítek na kartě pozice - sestupně, jediný kus je
+# nejníž, stejně jako množství v řádcích nad ním klesá shora dolů
+PIECE_SELL_SCOPES: dict[str, int] = {
+    SELL_SCOPE_THREE: 3,
+    SELL_SCOPE_TWO: 2,
+    SELL_SCOPE_ONE: 1,
+}
+
+# Všechny platné rozsahy prodeje
+SELL_SCOPES = (SELL_SCOPE_ALL, SELL_SCOPE_BASE, *PIECE_SELL_SCOPES)
 
 # Hranice v USD, pod kterou se výsledek prodeje hlásí jako vyrovnaný.
 # Zisk se na tlačítkách i v zápisu o příkazu zaokrouhluje na celé dolary,
@@ -249,13 +263,18 @@ class Position:
         return self.sold_quantity > 0 and 0 < self.open_quantity <= self.runner_quantity
 
     def sell_quantity_for(self, scope: str) -> int:
-        """Kolik kontraktů se prodá pro daný rozsah ('all', 'base' nebo 'one')."""
+        """
+        Kolik kontraktů se prodá pro daný rozsah ('all', 'base', nebo pevný
+        počet kusů 'one', 'two', 'three'). Pevný počet se prodá jen celý -
+        drží-li pozice méně kusů, vychází nula.
+        """
         if scope == SELL_SCOPE_ALL:
             return self.open_quantity
         if scope == SELL_SCOPE_BASE:
             return self.base_quantity
-        if scope == SELL_SCOPE_ONE:
-            return 1 if self.open_quantity >= 1 else 0
+        if scope in PIECE_SELL_SCOPES:
+            kusu = PIECE_SELL_SCOPES[scope]
+            return kusu if self.open_quantity >= kusu else 0
         raise ValueError(f"Neznámý rozsah prodeje: {scope}")
 
     # ------------------------------------------------------------------
@@ -297,20 +316,26 @@ class Position:
             and self.base_quantity >= 1
         )
 
-    @property
-    def can_sell_one(self) -> bool:
+    def can_sell_pieces(self, scope: str) -> bool:
         """
-        Prodej jediného kontraktu - pro odprodávání pozice po kusech.
+        Prodej pevného počtu kontraktů (scope 'one', 'two' nebo 'three') -
+        pro odprodávání pozice po kusech.
 
-        Nenabízí se tam, kde by dělal totéž co jiný řádek: u pozice o jednom
-        kontraktu (to je prodej všeho) ani tehdy, když základní pozice vychází
-        právě na jeden kus.
+        Nenabízí se tam, kde by dělal totéž co jiný řádek: drží-li pozice
+        právě tolik kusů (to je prodej všeho) nebo méně, ani tehdy, když
+        základní pozice vychází na stejný počet kusů.
         """
+        kusu = PIECE_SELL_SCOPES[scope]
         return (
             self.state in (PositionState.OPEN, PositionState.SELLING)
-            and self.open_quantity > 1
-            and self.base_quantity != 1
+            and self.open_quantity > kusu
+            and self.base_quantity != kusu
         )
+
+    @property
+    def can_sell_one(self) -> bool:
+        """Prodej jediného kontraktu, viz can_sell_pieces."""
+        return self.can_sell_pieces(SELL_SCOPE_ONE)
 
     @property
     def can_reprice_buy(self) -> bool:

@@ -23,9 +23,7 @@ from .config import AppConfig
 from .ib_service import IBService, PositionInfo, order_ref, valid_price
 from .models import (
     RIGHT_LABELS,
-    SELL_SCOPE_ALL,
-    SELL_SCOPE_BASE,
-    SELL_SCOPE_ONE,
+    SELL_SCOPES,
     Position,
     PositionState,
     cislo_text,
@@ -900,8 +898,8 @@ class ManualEngine:
         kind  = 'bid' prodává na nabízené ceně, 'mid' na středu trhu, 'ask'
         na poptávané ceně a 'markup' s přirážkou nad vyšší z cen vstup / ASK.
         scope = 'all' prodává celou drženou pozici, 'base' jen základní část,
-        takže v trhu zůstane runner (počet kontraktů z konfigurace), a 'one'
-        jediný kontrakt - pro odprodávání pozice po kusech.
+        takže v trhu zůstane runner (počet kontraktů z konfigurace), a 'one',
+        'two', 'three' pevný počet kontraktů - pro odprodávání pozice po kusech.
         markup_pct je přirážka v procentech, patří jen k druhu 'markup'.
 
         reprice říká, že rozhraní vykreslilo tlačítko nad pozicí, která už
@@ -917,7 +915,7 @@ class ManualEngine:
         # do hlášky, ale limitní cenu by nezměnila
         if markup_pct and kind != calc.MARKUP_SELL_KIND:
             raise ValueError(f"Prodej za {price_kind_label(kind)} přirážku nemá.")
-        if scope not in (SELL_SCOPE_ALL, SELL_SCOPE_BASE, SELL_SCOPE_ONE):
+        if scope not in SELL_SCOPES:
             raise ValueError(f"Neznámý rozsah prodeje: {scope}")
         if not self.ib.connected:
             raise RuntimeError("Není navázáno spojení s TWS.")

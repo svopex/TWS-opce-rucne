@@ -16,9 +16,12 @@ from .ib_service import IBService
 from .oer import efficiency_ratio
 from .report_dialog import ReportDialog
 from .models import (
+    PIECE_SELL_SCOPES,
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
     SELL_SCOPE_ONE,
+    SELL_SCOPE_THREE,
+    SELL_SCOPE_TWO,
     Position,
     buy_button_label,
     markup_text,
@@ -28,6 +31,14 @@ from .models import (
 )
 
 log = logging.getLogger(__name__)
+
+# Barvy řádků prodeje pevného počtu kusů (Quasar), aby se 1, 2 a 3 ks
+# od sebe na první pohled odlišily
+BARVY_KUSU = {
+    SELL_SCOPE_ONE: "teal-7",
+    SELL_SCOPE_TWO: "cyan-8",
+    SELL_SCOPE_THREE: "light-blue-8",
+}
 
 # Meze, nad kterými se ukazatel kvality spojení zvýrazní
 RTT_VAROVANI_MS = 500.0
@@ -258,10 +269,16 @@ class PositionCard:
             with self.radek_prodej_zaklad:
                 self.btn_zaklad = self._sell_buttons(SELL_SCOPE_BASE, "orange-8")
 
-            # Prodej jediného kontraktu - pro odprodávání pozice po kusech
-            self.radek_prodej_kus = ui.element("div").classes("radek-prodej")
-            with self.radek_prodej_kus:
-                self.btn_kus = self._sell_buttons(SELL_SCOPE_ONE, "teal-7")
+            # Prodej pevného počtu kontraktů (1, 2, 3 ks) - pro odprodávání
+            # pozice po kusech; každý počet má vlastní řádek i barvu.
+            # Klíčem obou slovníků je rozsah prodeje
+            self.radky_prodej_kusy: dict[str, Any] = {}
+            self.btn_kusy: dict[str, list[tuple[Any, str, float]]] = {}
+            for scope in PIECE_SELL_SCOPES:
+                radek = ui.element("div").classes("radek-prodej")
+                with radek:
+                    self.btn_kusy[scope] = self._sell_buttons(scope, BARVY_KUSU[scope])
+                self.radky_prodej_kusy[scope] = radek
 
     def _sell_buttons(self, scope: str, barva: str) -> list[tuple[Any, str, float]]:
         """
@@ -346,11 +363,16 @@ class PositionCard:
             update_buy_button(tlacitko, kind, position.quantity, limit, stisknuto)
             tlacitko.set_enabled(limit is not None)
 
-        for seznam, scope, mnozstvi, dostupne in (
+        # Řádky celé a základní pozice, za nimi řádky s pevným počtem kusů
+        radky = [
             (self.btn_vse, SELL_SCOPE_ALL, position.open_quantity, position.can_sell_all),
             (self.btn_zaklad, SELL_SCOPE_BASE, position.base_quantity, position.can_sell_base),
-            (self.btn_kus, SELL_SCOPE_ONE, 1, position.can_sell_one),
-        ):
+        ]
+        radky += [
+            (self.btn_kusy[scope], scope, kusu, position.can_sell_pieces(scope))
+            for scope, kusu in PIECE_SELL_SCOPES.items()
+        ]
+        for seznam, scope, mnozstvi, dostupne in radky:
             for tlacitko, kind, markup in seznam:
                 tlacitko.set_visibility(dostupne)
                 if not dostupne:
@@ -377,7 +399,8 @@ class PositionCard:
         self.radek_nakup.set_visibility(position.can_reprice_buy)
         self.radek_prodej_vse.set_visibility(position.can_sell_all)
         self.radek_prodej_zaklad.set_visibility(position.can_sell_base)
-        self.radek_prodej_kus.set_visibility(position.can_sell_one)
+        for scope, radek in self.radky_prodej_kusy.items():
+            radek.set_visibility(position.can_sell_pieces(scope))
 
     def remove(self) -> None:
         """Odstraní kartu ze stránky."""

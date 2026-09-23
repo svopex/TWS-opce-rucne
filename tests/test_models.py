@@ -12,6 +12,8 @@ from tws_rucne.models import (
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
     SELL_SCOPE_ONE,
+    SELL_SCOPE_THREE,
+    SELL_SCOPE_TWO,
     Position,
     PositionState,
     buy_button_label,
@@ -150,6 +152,25 @@ class TestDostupnostTlacitek(unittest.TestCase):
         # Ze čtyř kusů s runnerem 2 vychází základní pozice na 2 ks
         p = pozice(quantity=4, filled=4, runner=2)
         self.assertTrue(p.can_sell_one)
+
+    def test_deset_kusu_nabizi_jeden_dva_i_tri_kusy(self):
+        # Z deseti kusů (runner 1) se nabízí 10, 9, 1, 2 i 3 ks
+        p = pozice(quantity=10, filled=10)
+        for scope, kusu in ((SELL_SCOPE_ONE, 1), (SELL_SCOPE_TWO, 2), (SELL_SCOPE_THREE, 3)):
+            self.assertTrue(p.can_sell_pieces(scope))
+            self.assertEqual(p.sell_quantity_for(scope), kusu)
+
+    def test_pevny_pocet_se_nenabizi_kdyz_je_shodny_s_celou_pozici(self):
+        # Ze tří kusů by prodej tří kusů byl prodejem všeho
+        p = pozice(quantity=3, filled=3, runner=0)
+        self.assertFalse(p.can_sell_pieces(SELL_SCOPE_THREE))
+        self.assertEqual(pozice(quantity=2, filled=2).sell_quantity_for(SELL_SCOPE_THREE), 0)
+
+    def test_pevny_pocet_se_nenabizi_kdyz_je_shodny_se_zakladni_pozici(self):
+        # Ze tří kusů s runnerem 1 vychází základní pozice na 2 ks
+        p = pozice(quantity=3, filled=3)
+        self.assertFalse(p.can_sell_pieces(SELL_SCOPE_TWO))
+        self.assertTrue(p.can_sell_pieces(SELL_SCOPE_ONE))
 
     def test_neznamy_rozsah_je_chyba(self):
         with self.assertRaises(ValueError):
