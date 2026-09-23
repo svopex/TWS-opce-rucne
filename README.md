@@ -131,7 +131,8 @@ Při odezvě nad 500 ms se ukazatel zvýrazní žlutě; stojící kotace (nad 15
 se hlásí jen během seance - mimo obchodní hodiny trh nic neposílá a varování
 by svítilo pořád. Bez spojení se ukazatel skrývá.
 
-Za ukazatelem stojí **Order Efficiency Ratio** dne (`OER 3,4`). Interactive
+Za ukazatelem stojí **Order Efficiency Ratio** dne s počtem odeslaných zpráv
+(`OER 3,4 · zprávy 57`). Interactive
 Brokers za každý obchodní den porovnává, kolik zpráv účet do systému pošle,
 s tím, kolik z nich vede k obchodu:
 
@@ -140,8 +141,13 @@ OER = (odeslané příkazy + úpravy + zrušení) / (vyplněné příkazy + 1)
 ```
 
 IBKR očekává hodnotu nejvýš kolem 20; při vyšší posílá varování a při
-opakování omezuje obchodování. Podle zkušeností obchodníků (neoficiální)
-to začíná vadit až u tisíců zpráv denně. Údaj je jen informativní -
+opakování omezuje obchodování. IBKR sleduje dvě věci najednou: objem
+zpráv a poměr. Při malém objemu se OER prakticky neposuzuje; uvádí se
+hranice kolem 500 zpráv denně a zkušenosti obchodníků (200 denně bez
+problémů, 2000 už s varováním) tomu odpovídají. Nad touto hranicí je
+bezpečné držet OER do 20 - například 2000 zpráv denně vyžaduje zhruba
+100 a více vyplněných příkazů. Údaj se proto zvýrazní žlutě, až když
+zpráv je víc než 500 a zároveň OER přesáhne 20. Je jen informativní -
 aplikace podle něj nic neomezuje.
 
 - **Zprávy** jsou nové příkazy, jejich přecenění (úprava téhož příkazu)

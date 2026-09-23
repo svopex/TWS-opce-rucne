@@ -22,7 +22,7 @@ from ib_async import CommissionReport, Contract, Execution, Fill
 
 from tests.zaklad import ZakladEnginu
 from tws_rucne import store
-from tws_rucne.oer import OrderEfficiency, efficiency_ratio
+from tws_rucne.oer import OrderEfficiency, efficiency_ratio, exceeds_limits
 from tws_rucne.ui import oer_popis, oer_text
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -150,14 +150,30 @@ class TestZpravEnginu(ZakladEnginu):
 
 
 class TestPopisuOer(unittest.TestCase):
-    """Hlavička vypisuje poměr s desetinnou čárkou a tooltip s počty."""
+    """Hlavička vypisuje poměr s desetinnou čárkou, počet zpráv a tooltip s počty."""
 
-    def test_desetinna_carka(self):
-        self.assertEqual(oer_text(3.44), "OER 3,4")
+    def test_pomer_a_pocet_zprav(self):
+        # 31 zpráv na 8 vyplněných příkazů dá poměr 31 / 9 = 3,44
+        self.assertEqual(oer_text(31, 8), "OER 3,4 · zprávy 31")
 
     def test_tooltip_uvadi_pocty(self):
         popis = oer_popis(7, 1)
         self.assertIn("zprávy 7 / (vyplněné příkazy 1 + 1)", popis)
+
+
+class TestVarovaniOer(unittest.TestCase):
+    """OER se zvýrazní jen při velkém objemu zpráv a zároveň vysokém poměru."""
+
+    def test_maly_objem_nevaruje(self):
+        # Poměr 400 je vysoký, ale 400 zpráv je pod hranicí objemu
+        self.assertFalse(exceeds_limits(400, 0))
+
+    def test_velky_objem_s_nizkym_pomerem_nevaruje(self):
+        # 2000 zpráv na 100 vyplněných příkazů dá poměr 19,8
+        self.assertFalse(exceeds_limits(2000, 100))
+
+    def test_velky_objem_s_vysokym_pomerem_varuje(self):
+        self.assertTrue(exceeds_limits(2000, 50))
 
 
 if __name__ == "__main__":

@@ -19,10 +19,23 @@ from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
+# Meze IBKR: poměr se posuzuje až od zhruba 500 zpráv denně, nad tímto
+# objemem je bezpečné držet OER do 20
+OER_LIMIT = 20.0
+MESSAGE_VOLUME_LIMIT = 500
+
 
 def efficiency_ratio(messages: int, executed: int) -> float:
     """OER podle vzorce IBKR; jednička ve jmenovateli brání dělení nulou."""
     return messages / (executed + 1)
+
+
+def exceeds_limits(messages: int, executed: int) -> bool:
+    """
+    Překračuje den meze IBKR? Jen když je překročen objem zpráv i poměr -
+    při malém počtu zpráv IBKR vysoký poměr neřeší.
+    """
+    return messages > MESSAGE_VOLUME_LIMIT and efficiency_ratio(messages, executed) > OER_LIMIT
 
 
 class OrderEfficiency:

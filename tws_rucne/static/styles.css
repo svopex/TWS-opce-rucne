@@ -39,8 +39,9 @@
   margin-right: 12px;
 }
 
-/* Pomalá odezva nebo stojící kotace během seance */
-.stav-linky.linka-varovani {
+/* Údaj v hlavičce nad svou mezí - pomalá odezva, stojící kotace během
+   seance nebo OER nad mezí IBKR při velkém objemu zpráv */
+.stav-linky.stav-varovani {
   color: #fbbf24;
   font-weight: 600;
 }

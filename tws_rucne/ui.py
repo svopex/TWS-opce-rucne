@@ -13,7 +13,7 @@ from . import calc
 from .config import AppConfig
 from .engine import ManualEngine, Preview
 from .ib_service import IBService
-from .oer import efficiency_ratio
+from .oer import MESSAGE_VOLUME_LIMIT, OER_LIMIT, efficiency_ratio, exceeds_limits
 from .report_dialog import ReportDialog
 from .models import (
     SELL_SCOPE_ALL,
@@ -46,6 +46,9 @@ BARVY_PRODEJE = {
 RTT_VAROVANI_MS = 500.0
 STARI_KOTACI_VAROVANI_SEC = 15.0
 
+# Třída zvýraznění údaje v hlavičce, který překročil svou mez
+TRIDA_VAROVANI = "stav-varovani"
+
 
 def mark_pressed(tlacitko: Any, pressed: bool) -> None:
     """
@@ -59,6 +62,17 @@ def mark_pressed(tlacitko: Any, pressed: bool) -> None:
         tlacitko.props(remove="outline")
     else:
         tlacitko.props("outline")
+
+
+def mark_warning(prvek: Any, varuje: bool) -> None:
+    """
+    Zvýrazní údaj v hlavičce, který překročil svou mez, jinak zvýraznění
+    odebere. NiceGUI třídy do prohlížeče posílá jen při skutečné změně.
+    """
+    if varuje:
+        prvek.classes(add=TRIDA_VAROVANI)
+    else:
+        prvek.classes(remove=TRIDA_VAROVANI)
 
 
 def update_buy_button(
@@ -104,16 +118,21 @@ def stav_linky_text(rtt_ms: float | None, stari_sec: float | None) -> str:
     return f"TWS {odezva} · data {stari_text(stari_sec)}"
 
 
-def oer_text(ratio: float) -> str:
-    """Order Efficiency Ratio dne do hlavičky, například 'OER 3,4'."""
-    return f"OER {ratio:.1f}".replace(".", ",")
+def oer_text(messages: int, executed: int) -> str:
+    """
+    Order Efficiency Ratio dne a počet odeslaných zpráv do hlavičky,
+    například 'OER 3,4 · zprávy 57'. IBKR sleduje obojí - poměr i objem.
+    """
+    ratio = f"{efficiency_ratio(messages, executed):.1f}".replace(".", ",")
+    return f"OER {ratio} · zprávy {messages}"
 
 
 def oer_popis(messages: int, executed: int) -> str:
     """Tooltip k OER v hlavičce - vzorec IBKR s dnešními počty aplikace."""
     return (
-        f"Order Efficiency Ratio (IBKR očekává nejvýš kolem 20) = zprávy "
+        f"Order Efficiency Ratio (IBKR očekává nejvýš kolem {OER_LIMIT:.0f}) = zprávy "
         f"{messages} / (vyplněné příkazy {executed} + 1). "
+        f"Poměr IBKR posuzuje až od zhruba {MESSAGE_VOLUME_LIMIT} zpráv denně. "
         f"Počítají se jen příkazy této aplikace."
     )
 
@@ -476,8 +495,8 @@ class TradingUI:
             # spojení nejen stojí, ale i žije - odpojené se skrývá
             self.link_label = ui.label().classes("stav-linky")
             self.link_label.set_visibility(False)
-            # Order Efficiency Ratio dne - kolik zpráv do TWS připadá na
-            # vyplněný příkaz; tooltip nese počty, ze kterých poměr vyšel
+            # Order Efficiency Ratio dne a počet zpráv do TWS - kolik zpráv
+            # připadá na vyplněný příkaz; tooltip nese vzorec s počty
             self.oer_label = ui.label().classes("stav-linky stav-oer")
             self.oer_label.set_visibility(False)
             with self.oer_label:
@@ -929,10 +948,7 @@ class TradingUI:
 
         # Trh je otevřený, když odpočet do jeho otevření nemá co ukazovat
         trh_otevren = self.engine.market_open_seconds() is None
-        if linka_varuje(self.ib.rtt_ms, stari, trh_otevren):
-            self.link_label.classes(add="linka-varovani")
-        else:
-            self.link_label.classes(remove="linka-varovani")
+        mark_warning(self.link_label, linka_varuje(self.ib.rtt_ms, stari, trh_otevren))
 
     def _refresh_oer(self) -> None:
         """
@@ -943,11 +959,12 @@ class TradingUI:
         if not self.ib.connected:
             return
         # Vyplněné příkazy se počítají průchodem přes všechna vyplnění dne,
-        # proto se čtou jen jednou a poměr se skládá z nich
+        # proto se čtou jen jednou a text, tooltip i zvýraznění vychází z nich
         oer = self.ib.oer
         zpravy, vyplnene = oer.messages, oer.executed
-        self.oer_label.set_text(oer_text(efficiency_ratio(zpravy, vyplnene)))
+        self.oer_label.set_text(oer_text(zpravy, vyplnene))
         self.oer_tip.set_text(oer_popis(zpravy, vyplnene))
+        mark_warning(self.oer_label, exceeds_limits(zpravy, vyplnene))
 
     async def _measure_link(self) -> None:
         """
