@@ -16,12 +16,12 @@ from .ib_service import IBService
 from .oer import efficiency_ratio
 from .report_dialog import ReportDialog
 from .models import (
-    PIECE_SELL_SCOPES,
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
     SELL_SCOPE_ONE,
     SELL_SCOPE_THREE,
     SELL_SCOPE_TWO,
+    SELL_SCOPES,
     Position,
     buy_button_label,
     markup_text,
@@ -32,12 +32,14 @@ from .models import (
 
 log = logging.getLogger(__name__)
 
-# Barvy řádků prodeje pevného počtu kusů (Quasar), aby se 1, 2 a 3 ks
-# od sebe na první pohled odlišily
-BARVY_KUSU = {
-    SELL_SCOPE_ONE: "teal-7",
-    SELL_SCOPE_TWO: "cyan-8",
+# Barvy řádků prodeje podle rozsahu (Quasar) - co který řádek prodá,
+# říká barva: celá pozice, základ s runnerem a pevně 3, 2 a 1 ks
+BARVY_PRODEJE = {
+    SELL_SCOPE_ALL: "red-8",
+    SELL_SCOPE_BASE: "orange-8",
     SELL_SCOPE_THREE: "light-blue-8",
+    SELL_SCOPE_TWO: "cyan-8",
+    SELL_SCOPE_ONE: "teal-7",
 }
 
 # Meze, nad kterými se ukazatel kvality spojení zvýrazní
@@ -247,7 +249,7 @@ class PositionCard:
             self.hlaska = ui.label().classes("hlaska-pozice")
 
             # Nahoře řádek přecenění nákupu (ASK, MID), pod ním řádky prodeje -
-            # celá pozice, základní pozice s runnerem a jediný kontrakt
+            # celá pozice, základní pozice s runnerem a pevně 3, 2 a 1 ks
             with ui.row().classes("radek-pozice-nakup") as self.radek_nakup:
                 # Přecenění nevyplněného nákupu na aktuální cenu
                 self.btn_nakup_ask = ui.button(
@@ -257,28 +259,17 @@ class PositionCard:
                     on_click=lambda: self.parent.reprice_buy(self.position_id, "mid")
                 ).props("dense outline color=primary")
 
-            # Oba řádky prodeje stojí v mřížce se stejně širokými sloupci,
-            # takže tlačítka stejného druhu leží přesně nad sebou. Proto je to
-            # obyčejný div, ne ui.row() - ten si nese vlastní flex rozvržení.
-            self.radek_prodej_vse = ui.element("div").classes("radek-prodej")
-            with self.radek_prodej_vse:
-                self.btn_vse = self._sell_buttons(SELL_SCOPE_ALL, "red-8")
-
-            # Prodej základní pozice - v trhu zůstane runner
-            self.radek_prodej_zaklad = ui.element("div").classes("radek-prodej")
-            with self.radek_prodej_zaklad:
-                self.btn_zaklad = self._sell_buttons(SELL_SCOPE_BASE, "orange-8")
-
-            # Prodej pevného počtu kontraktů (1, 2, 3 ks) - pro odprodávání
-            # pozice po kusech; každý počet má vlastní řádek i barvu.
-            # Klíčem obou slovníků je rozsah prodeje
-            self.radky_prodej_kusy: dict[str, Any] = {}
-            self.btn_kusy: dict[str, list[tuple[Any, str, float]]] = {}
-            for scope in PIECE_SELL_SCOPES:
+            # Řádky prodeje v pořadí SELL_SCOPES stojí v mřížce se stejně
+            # širokými sloupci, takže tlačítka stejného druhu leží přesně nad
+            # sebou. Proto je to obyčejný div, ne ui.row() - ten si nese
+            # vlastní flex rozvržení. Klíčem je rozsah prodeje, hodnotou
+            # dvojice (řádek, tlačítka)
+            self.radky_prodej: dict[str, tuple[Any, list[tuple[Any, str, float]]]] = {}
+            for scope in SELL_SCOPES:
                 radek = ui.element("div").classes("radek-prodej")
                 with radek:
-                    self.btn_kusy[scope] = self._sell_buttons(scope, BARVY_KUSU[scope])
-                self.radky_prodej_kusy[scope] = radek
+                    tlacitka = self._sell_buttons(scope, BARVY_PRODEJE[scope])
+                self.radky_prodej[scope] = (radek, tlacitka)
 
     def _sell_buttons(self, scope: str, barva: str) -> list[tuple[Any, str, float]]:
         """
@@ -363,22 +354,24 @@ class PositionCard:
             update_buy_button(tlacitko, kind, position.quantity, limit, stisknuto)
             tlacitko.set_enabled(limit is not None)
 
-        # Řádky celé a základní pozice, za nimi řádky s pevným počtem kusů
-        radky = [
-            (self.btn_vse, SELL_SCOPE_ALL, position.open_quantity, position.can_sell_all),
-            (self.btn_zaklad, SELL_SCOPE_BASE, position.base_quantity, position.can_sell_base),
-        ]
-        radky += [
-            (self.btn_kusy[scope], scope, kusu, position.can_sell_pieces(scope))
-            for scope, kusu in PIECE_SELL_SCOPES.items()
-        ]
-        for seznam, scope, mnozstvi, dostupne in radky:
+        # Limitní cena nezávisí na rozsahu prodeje, počítá se tedy jednou
+        # pro každý druh ceny a přirážku a řádky ji jen čtou
+        limity: dict[tuple[str, float], float | None] = {}
+
+        for scope, (radek, seznam) in self.radky_prodej.items():
+            # Řádek bez jediného tlačítka by po sobě nechal prázdnou mezeru
+            dostupne = position.can_sell(scope)
+            radek.set_visibility(dostupne)
+            if not dostupne:
+                continue
+            # Množství bere z modelu, aby tlačítko ukazovalo přesně to,
+            # co engine při stisku pošle do trhu
+            mnozstvi = position.sell_quantity_for(scope)
             for tlacitko, kind, markup in seznam:
-                tlacitko.set_visibility(dostupne)
-                if not dostupne:
-                    continue
                 mark_pressed(tlacitko, position.is_pressed_sell_button(kind, scope, markup))
-                limit = engine.position_sell_limit(position, kind, markup)
+                if (kind, markup) not in limity:
+                    limity[kind, markup] = engine.position_sell_limit(position, kind, markup)
+                limit = limity[kind, markup]
                 # Na tlačítku stojí druh ceny (u přirážky procenta), limitní
                 # cena a zisk či ztráta, kterou prodej tohoto množství přinese
                 tlacitko.set_text(
@@ -397,10 +390,6 @@ class PositionCard:
 
         # Řádek bez jediného tlačítka by po sobě nechal prázdnou mezeru
         self.radek_nakup.set_visibility(position.can_reprice_buy)
-        self.radek_prodej_vse.set_visibility(position.can_sell_all)
-        self.radek_prodej_zaklad.set_visibility(position.can_sell_base)
-        for scope, radek in self.radky_prodej_kusy.items():
-            radek.set_visibility(position.can_sell_pieces(scope))
 
     def remove(self) -> None:
         """Odstraní kartu ze stránky."""

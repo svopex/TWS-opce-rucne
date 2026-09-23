@@ -135,23 +135,23 @@ class TestDostupnostTlacitek(unittest.TestCase):
     def test_prodej_jednoho_kusu(self):
         # Ze tří kusů (runner 1) lze odprodat jediný kontrakt
         p = pozice()
-        self.assertTrue(p.can_sell_one)
+        self.assertTrue(p.can_sell(SELL_SCOPE_ONE))
         self.assertEqual(p.sell_quantity_for(SELL_SCOPE_ONE), 1)
 
     def test_jeden_kus_se_nenabizi_u_jednokontraktove_pozice(self):
         # Prodej jednoho kusu by dělal totéž co prodej všeho
-        self.assertFalse(pozice(quantity=1, filled=1).can_sell_one)
+        self.assertFalse(pozice(quantity=1, filled=1).can_sell(SELL_SCOPE_ONE))
 
     def test_jeden_kus_se_nenabizi_kdyz_je_shodny_se_zakladni_pozici(self):
         # Ze dvou kusů s runnerem 1 vychází základní pozice také na 1 ks
         p = pozice(quantity=2, filled=2)
         self.assertEqual(p.sell_quantity_for(SELL_SCOPE_BASE), 1)
-        self.assertFalse(p.can_sell_one)
+        self.assertFalse(p.can_sell(SELL_SCOPE_ONE))
 
     def test_vetsi_runner_prodej_jednoho_kusu_neblokuje(self):
         # Ze čtyř kusů s runnerem 2 vychází základní pozice na 2 ks
         p = pozice(quantity=4, filled=4, runner=2)
-        self.assertTrue(p.can_sell_one)
+        self.assertTrue(p.can_sell(SELL_SCOPE_ONE))
 
     def test_deset_kusu_nabizi_jeden_dva_i_tri_kusy(self):
         # Z deseti kusů (runner 1) se nabízí 10, 9, 1, 2 i 3 ks

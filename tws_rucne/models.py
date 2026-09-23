@@ -272,8 +272,8 @@ class Position:
             return self.open_quantity
         if scope == SELL_SCOPE_BASE:
             return self.base_quantity
-        if scope in PIECE_SELL_SCOPES:
-            kusu = PIECE_SELL_SCOPES[scope]
+        kusu = PIECE_SELL_SCOPES.get(scope)
+        if kusu is not None:
             return kusu if self.open_quantity >= kusu else 0
         raise ValueError(f"Neznámý rozsah prodeje: {scope}")
 
@@ -332,10 +332,16 @@ class Position:
             and self.base_quantity != kusu
         )
 
-    @property
-    def can_sell_one(self) -> bool:
-        """Prodej jediného kontraktu, viz can_sell_pieces."""
-        return self.can_sell_pieces(SELL_SCOPE_ONE)
+    def can_sell(self, scope: str) -> bool:
+        """
+        Nabízí se řádek prodeje pro daný rozsah - společný vstup pro rozhraní,
+        které tak nemusí rozlišovat celou pozici, základ a pevný počet kusů.
+        """
+        if scope == SELL_SCOPE_ALL:
+            return self.can_sell_all
+        if scope == SELL_SCOPE_BASE:
+            return self.can_sell_base
+        return self.can_sell_pieces(scope)
 
     @property
     def can_reprice_buy(self) -> bool:
