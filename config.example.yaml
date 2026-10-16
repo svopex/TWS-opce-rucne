@@ -129,7 +129,7 @@ state:
 # --- Webové rozhraní ---
 ui:
   host: 127.0.0.1
-  port: 8081
+  port: 8091
   refresh_interval_sec: 0.5
   # Výchozí vzhled; poslední volba obchodníka má přednost
   dark: false
