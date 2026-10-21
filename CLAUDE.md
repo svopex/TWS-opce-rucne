@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Popis aplikace máš v `README.md`.
+Popis aplikace máš v `README.md`. `README.md` průběžně aktualizuj.
 
 Inspirací je sousední projekt `../TWS-opce` - odtud pochází struktura
 (NiceGUI + `ib_async`), obálka nad TWS i způsob výběru strike a expirace.
