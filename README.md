@@ -111,9 +111,11 @@ kartě pozice se bez kotace nepovolí.
 ### Hlavička
 
 Vlevo stojí název aplikace, vpravo odpočet do otevření burzy (jen mimo
-seanci), přepínač světlého a tmavého vzhledu, stav spojení s TWS včetně
-účtu, ukazatel kvality spojení a tlačítko připojení. Volba vzhledu se
-pamatuje mezi spuštěními a má přednost před `ui.dark` z konfigurace.
+seanci), přepínač vzhledu, stav spojení s TWS včetně účtu, ukazatel
+kvality spojení a tlačítko připojení. Přepínač střídá světlý, tmavý a
+automatický vzhled podle systému (ikona „A"), který se sám přepne, když
+systém přejde mezi denním a nočním režimem. Volba vzhledu se pamatuje mezi
+spuštěními a má přednost před `ui.dark` z konfigurace.
 
 Ukazatel `TWS 2,1 ms · data 0,1 s` říká, že spojení nejen stojí, ale i žije:
 
@@ -629,8 +631,10 @@ pruhu nahoře. Aplikace k nim sama nic nezadává - patří do TWS.
 | `tws_rucne/oer.py` | denní počítadlo Order Efficiency Ratio (zprávy do TWS / vyplnění) |
 | `tws_rucne/report.py` | výpočet souhrnu obchodního dne (bez vykreslování) |
 | `tws_rucne/report_dialog.py` | popup s přehledem výsledků - dlaždice, seznamy, grafy |
+| `tws_rucne/theme.py` | přepínač vzhledu - světlý, tmavý, podle systému |
 | `tws_rucne/ui.py` | webové rozhraní (NiceGUI) |
 | `tws_rucne/static/styles.css` | styly |
+| `tws_rucne/static/system_theme.js` | hlásí serveru systémový vzhled kvůli barvám grafů |
 | `tests/` | testy; `fake_ib.py` je náhrada TWS, `zaklad.py` společná příprava enginu |
 
 ---

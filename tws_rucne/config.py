@@ -151,7 +151,8 @@ class UiConfig:
     host: str = "127.0.0.1"
     port: int = 8081
     refresh_interval_sec: float = 1.0
-    dark: bool = False
+    # Výchozí vzhled: True tmavý, False světlý, None podle systému
+    dark: bool | None = None
     log_lines: int = 200
     # Jak často se měří odezva TWS pro ukazatel v hlavičce. Je to dotaz do
     # TWS, ne čtení z paměti jako zbytek obnovy, proto vlastní, řidší tempo;

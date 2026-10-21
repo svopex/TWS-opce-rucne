@@ -15,6 +15,7 @@ from .engine import ManualEngine, Preview
 from .ib_service import IBService
 from .oer import MESSAGE_VOLUME_LIMIT, OER_LIMIT, efficiency_ratio, exceeds_limits
 from .report_dialog import ReportDialog
+from .theme import ThemeSwitch
 from .models import (
     SELL_SCOPE_ALL,
     SELL_SCOPE_BASE,
@@ -430,6 +431,7 @@ class TradingUI:
     def build(self) -> None:
         """Vykreslí celou stránku - hlavičku, formulář, přehled pozic a průběh."""
         ui.add_head_html(f'<link rel="stylesheet" href="{staticky_soubor("styles.css")}">')
+        ui.add_head_html(f'<script defer src="{staticky_soubor("system_theme.js")}"></script>')
 
         # Pořadové číslo přípravy zadání - rozlišuje souběžně běžící požadavky
         self.preview_seq: int = 0
@@ -454,9 +456,7 @@ class TradingUI:
 
         # Popup s přehledem výsledků dne; grafy v něm se řídí zvoleným
         # vzhledem, proto dostane přístup k přepínači z hlavičky
-        self.report_dialog = ReportDialog(
-            self.engine, lambda: bool(self.dark_mode.value), self._toggle_dark
-        )
+        self.report_dialog = ReportDialog(self.engine, self.theme)
         self.report_dialog.build()
 
         # Pruh s upozorněním na opční pozice, které aplikace neřídí
@@ -479,17 +479,14 @@ class TradingUI:
 
     def _build_header(self) -> None:
         """Hlavička s názvem aplikace, přepínačem vzhledu a stavem spojení na TWS."""
-        # Tmavý režim: výchozí hodnota z konfigurace, poslední volba
-        # obchodníka se pamatuje mezi spuštěními
-        self.dark_mode = ui.dark_mode(bool(app.storage.general.get("dark_mode", self.cfg.ui.dark)))
+        self.theme = ThemeSwitch(self.cfg.ui.dark)
         with ui.header().classes("hlavicka"):
             ui.label("Ruční obchodování opcí – TWS").classes("nazev")
             ui.space()
             # Odpočet do otevření burzy - během seance se skrývá
             self.market_open_label = ui.label().classes("odpocet-otevreni")
             self.market_open_label.set_visibility(False)
-            self.dark_button = ui.button(on_click=self._toggle_dark).props("flat round dense")
-            self._refresh_dark_button()
+            self.theme.button()
             self.status_label = ui.label().classes("stav-spojeni")
             # Kvalita spojení: odezva TWS a stáří tržních dat. Ukazuje, že
             # spojení nejen stojí, ale i žije - odpojené se skrývá
@@ -504,17 +501,6 @@ class TradingUI:
             self.connect_button = ui.button("Připojit", on_click=self._toggle_connection).props(
                 "flat"
             )
-
-    def _toggle_dark(self) -> None:
-        """Přepne světlý/tmavý vzhled a volbu si zapamatuje."""
-        self.dark_mode.value = not self.dark_mode.value
-        app.storage.general["dark_mode"] = self.dark_mode.value
-        self._refresh_dark_button()
-
-    def _refresh_dark_button(self) -> None:
-        """Ikona přepínače ukazuje režim, do kterého se lze přepnout."""
-        ikona = "light_mode" if self.dark_mode.value else "dark_mode"
-        self.dark_button.props(f"icon={ikona}")
 
     def _build_form(self) -> None:
         """Formulář pro zadání nákupu - ticker, množství a typ opce."""
