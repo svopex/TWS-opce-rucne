@@ -266,6 +266,10 @@ class PositionCard:
                 self.podklad = ui.label().classes("udaj")
                 self.vysledek = ui.label().classes("udaj udaj-vysledek")
 
+            # Upozornění na rozpor prémie s podkladem - stojí hned pod údaji,
+            # aby bylo vidět u čísel, ze kterých vychází
+            self.rozpor = ui.label().classes("varovani-radek")
+
             self.hlaska = ui.label().classes("hlaska-pozice")
 
             # Nahoře řádek přecenění nákupu (ASK, MID), pod ním řádky prodeje -
@@ -347,6 +351,12 @@ class PositionCard:
         )
         vysledek = position.open_pnl_net if position.pnl_split else position.net_pnl
         self.vysledek.classes(replace=f"udaj udaj-vysledek {pnl_class(vysledek)}")
+
+        # Podklad jde ve prospěch opce, prémie přesto klesá - obchodník se
+        # o výstupu rozhoduje sám, karta jen upozorní
+        rozpor = self.parent.engine.divergence_warning(position)
+        self.rozpor.set_text(rozpor)
+        self.rozpor.set_visibility(bool(rozpor))
 
         self.hlaska.set_text(position.message)
         self.hlaska.set_visibility(bool(position.message))
@@ -1085,6 +1095,8 @@ class TradingUI:
             f"Runner: {t.runner_quantity} ks | max. spread {t.max_spread_pct:g} %\n"
             f"Tolerance: ASK +{t.ask_tolerance_pct:g} % | BID -{t.bid_tolerance_pct:g} %\n"
             f"Přirážky nad vstupem (v zisku nad ASK): {prirazky}\n"
+            f"Rozpor s podkladem: podklad ve směru opce o {t.divergence_underlying_pct:g} %, "
+            f"prémie dolů o {t.divergence_premium_pct:g} %\n"
             f"Platnost příkazů: {t.tif}"
         )
 

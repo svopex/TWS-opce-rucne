@@ -74,6 +74,13 @@ class TradingConfig:
     # Spread, nad kterým rozhraní upozorní, že se obchod nevyplácí.
     # Nákup se ale nezakazuje - o zadání rozhoduje obchodník.
     max_spread_pct: float = 7.0
+    # Rozpor prémie s podkladem: karta pozice upozorní, když se podklad
+    # od vstupu pohnul ve prospěch opce (CALL nahoru, PUT dolů) aspoň
+    # o divergence_underlying_pct procent a prémie (střed trhu) přitom
+    # klesla aspoň o divergence_premium_pct procent. Prahy odfiltrují šum
+    # kotace; obchodník se rozhoduje sám, nic se nezadává automaticky.
+    divergence_underlying_pct: float = 0.1
+    divergence_premium_pct: float = 2.0
     # Časová zóna burzy - odpočet se časuje v ní, takže posuny letního
     # a zimního času vůči místnímu času počítače nehrají roli
     exchange_timezone: str = "America/New_York"
@@ -261,6 +268,14 @@ def _cas_burzy(hodnota: str) -> tuple[int, int] | None:
     return hodina, minuta
 
 
+def _je_cislo(hodnota: Any) -> bool:
+    """
+    Hodnota z YAML je číslo. Pravdivostní hodnota je v Pythonu podtyp čísla,
+    takže 'true' by bez vyloučení prošlo jako 1.
+    """
+    return isinstance(hodnota, (int, float)) and not isinstance(hodnota, bool)
+
+
 def validate_config(cfg: AppConfig) -> None:
     """Zkontroluje hodnoty konfigurace a vyhodí ValueError s popisem chyby."""
     problemy: list[str] = []
@@ -302,13 +317,18 @@ def validate_config(cfg: AppConfig) -> None:
 
     # Prodejní přirážky: jediné číslo místo seznamu nebo nekladná hodnota
     # by se jinak projevily až rozsypaným řádkem tlačítek, případně prodejním
-    # příkazem na základní ceně nebo pod ní. Pravdivostní hodnota je v Pythonu
-    # podtyp čísla, takže 'true' v YAML by bez vyloučení prošlo jako 1 %
+    # příkazem na základní ceně nebo pod ní
     if not isinstance(cfg.trading.sell_markups_pct, list) or any(
-        isinstance(p, bool) or not isinstance(p, (int, float)) or p <= 0
-        for p in cfg.trading.sell_markups_pct
+        not _je_cislo(p) or p <= 0 for p in cfg.trading.sell_markups_pct
     ):
         problemy.append("trading.sell_markups_pct musí být seznam kladných procent")
+    # Prahy rozporu prémie s podkladem: záporný práh by hlásil rozpor i tam,
+    # kde se podklad pohnul proti opci, a text v YAML by shodil výpočet
+    # až při překreslení karty pozice
+    for nazev in ("divergence_underlying_pct", "divergence_premium_pct"):
+        hodnota = getattr(cfg.trading, nazev)
+        if not _je_cislo(hodnota) or hodnota < 0:
+            problemy.append(f"trading.{nazev} musí být nezáporné číslo (procenta)")
     if cfg.trading.tif not in ("DAY", "GTC"):
         problemy.append(f"trading.tif musí být DAY nebo GTC, nalezeno '{cfg.trading.tif}'")
 

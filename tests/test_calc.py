@@ -178,5 +178,50 @@ class TestSpreadAVysledek(unittest.TestCase):
         self.assertIsNone(calc.realized_pnl(None, 1, 3.5))
 
 
+class TestRozporPremieSPodkladem(unittest.TestCase):
+    """Podklad jde ve prospěch opce, prémie přesto klesá."""
+
+    def rozpor(self, right, podklad, premie, min_podklad=0.1, min_premie=2.0):
+        """Rozpor proti vstupu s podkladem 200 a prémií 2,00."""
+        return calc.premium_divergence(right, 200.0, podklad, 2.00, premie, min_podklad, min_premie)
+
+    def test_call_podklad_nahoru_premie_dolu(self):
+        vysledek = self.rozpor("C", 201.0, 1.90)
+        self.assertIsNotNone(vysledek)
+        podklad_pct, premie_pct = vysledek
+        self.assertAlmostEqual(podklad_pct, 0.5)
+        self.assertAlmostEqual(premie_pct, -5.0)
+
+    def test_put_podklad_dolu_premie_dolu(self):
+        podklad_pct, premie_pct = self.rozpor("P", 199.0, 1.90)
+        # Znaménko odpovídá skutečnému pohybu podkladu
+        self.assertAlmostEqual(podklad_pct, -0.5)
+        self.assertAlmostEqual(premie_pct, -5.0)
+
+    def test_podklad_proti_opci_neni_rozpor(self):
+        # Prémie klesá, protože podklad jde proti opci - to je běžná ztráta
+        self.assertIsNone(self.rozpor("C", 199.0, 1.90))
+        self.assertIsNone(self.rozpor("P", 201.0, 1.90))
+
+    def test_rostouci_premie_neni_rozpor(self):
+        self.assertIsNone(self.rozpor("C", 201.0, 2.10))
+
+    def test_pohyb_pod_prahy_neni_rozpor(self):
+        # Podklad +0,05 % je pod prahem 0,1 %
+        self.assertIsNone(self.rozpor("C", 200.1, 1.90))
+        # Prémie -1 % je pod prahem 2 %
+        self.assertIsNone(self.rozpor("C", 201.0, 1.98))
+
+    def test_nulove_prahy_vyzaduji_skutecny_pohyb(self):
+        self.assertIsNone(self.rozpor("C", 200.0, 1.99, 0.0, 0.0))
+        self.assertIsNone(self.rozpor("C", 200.5, 2.00, 0.0, 0.0))
+        self.assertIsNotNone(self.rozpor("C", 200.5, 1.99, 0.0, 0.0))
+
+    def test_bez_vstupu_nebo_kotace_neni_rozpor(self):
+        self.assertIsNone(calc.premium_divergence("C", None, 201.0, 2.00, 1.90, 0.1, 2.0))
+        self.assertIsNone(calc.premium_divergence("C", 200.0, 201.0, None, 1.90, 0.1, 2.0))
+        self.assertIsNone(self.rozpor("C", 201.0, None))
+
+
 if __name__ == "__main__":
     unittest.main()

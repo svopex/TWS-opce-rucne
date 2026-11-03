@@ -18,6 +18,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tws_rucne.config import AppConfig, validate_config
 
 
+class ZakladValidace(unittest.TestCase):
+    """Společný základ testů, které očekávají odmítnutou konfiguraci."""
+
+    def _chyba(self, cfg: AppConfig) -> str:
+        """Spustí validaci a vrátí text vyhozené chyby."""
+        with self.assertRaises(ValueError) as chyba:
+            validate_config(cfg)
+        return str(chyba.exception)
+
+
 class TestVychoziKonfigurace(unittest.TestCase):
     """Výchozí hodnoty musí validací projít."""
 
@@ -25,14 +35,8 @@ class TestVychoziKonfigurace(unittest.TestCase):
         validate_config(AppConfig())
 
 
-class TestObchodniHodinyBurzy(unittest.TestCase):
+class TestObchodniHodinyBurzy(ZakladValidace):
     """Časová zóna a obchodní hodiny se ověřují už při načtení konfigurace."""
-
-    def _chyba(self, cfg: AppConfig) -> str:
-        """Spustí validaci a vrátí text vyhozené chyby."""
-        with self.assertRaises(ValueError) as chyba:
-            validate_config(cfg)
-        return str(chyba.exception)
 
     def test_neznama_casova_zona(self):
         cfg = AppConfig()
@@ -84,14 +88,8 @@ class TestRezervacnichSouboru(unittest.TestCase):
         self.assertIn("reserved_state_files", str(chyba.exception))
 
 
-class TestProdejnichPrirazek(unittest.TestCase):
+class TestProdejnichPrirazek(ZakladValidace):
     """Přirážky prodejních tlačítek se ověřují jako seznam kladných procent."""
-
-    def _chyba(self, cfg: AppConfig) -> str:
-        """Spustí validaci a vrátí text vyhozené chyby."""
-        with self.assertRaises(ValueError) as chyba:
-            validate_config(cfg)
-        return str(chyba.exception)
 
     def test_desetinne_prirazky_projdou(self):
         cfg = AppConfig()
@@ -130,6 +128,26 @@ class TestProdejnichPrirazek(unittest.TestCase):
         cfg = AppConfig()
         cfg.trading.sell_markups_pct = [True]
         self.assertIn("sell_markups_pct", self._chyba(cfg))
+
+
+class TestPrahuRozporu(ZakladValidace):
+    """Prahy rozporu prémie s podkladem musí být nezáporná procenta."""
+
+    def test_nula_projde(self):
+        cfg = AppConfig()
+        cfg.trading.divergence_underlying_pct = 0
+        cfg.trading.divergence_premium_pct = 0.0
+        validate_config(cfg)
+
+    def test_zaporny_prah_neprojde(self):
+        cfg = AppConfig()
+        cfg.trading.divergence_premium_pct = -1.0
+        self.assertIn("divergence_premium_pct", self._chyba(cfg))
+
+    def test_text_misto_cisla_neprojde(self):
+        cfg = AppConfig()
+        cfg.trading.divergence_underlying_pct = "0.1 %"
+        self.assertIn("divergence_underlying_pct", self._chyba(cfg))
 
 
 if __name__ == "__main__":

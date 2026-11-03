@@ -240,6 +240,44 @@ def position_pnl(
     return (market_price - fill_price) * OPTION_MULTIPLIER * quantity
 
 
+def premium_divergence(
+    right: str,
+    entry_underlying: float | None,
+    underlying: float | None,
+    entry_premium: float | None,
+    premium: float | None,
+    min_underlying_pct: float,
+    min_premium_pct: float,
+) -> tuple[float, float] | None:
+    """
+    Rozpor mezi pohybem podkladu a prémií opce od vstupu do pozice.
+
+    Rozpor nastává, když se podklad od vstupu pohnul ve prospěch opce
+    (u CALL nahoru, u PUT dolů) aspoň o min_underlying_pct procent a prémie
+    přitom klesla aspoň o min_premium_pct procent. Opce pak nesleduje
+    podklad - typicky ji rozpouští časový rozpad nebo pokles implikované
+    volatility - a další pohyb podkladu ji nemusí zachránit.
+
+    right je 'C' nebo 'P', entry_* hodnoty v okamžiku vstupu, ostatní
+    aktuální. Vrací dvojici (změna podkladu v %, změna prémie v %)
+    se znaménkem skutečného pohybu; bez rozporu nebo bez některé z cen None.
+    """
+    if not all(is_price(c) for c in (entry_underlying, underlying, entry_premium, premium)):
+        return None
+
+    podklad_pct = (underlying / entry_underlying - 1.0) * 100.0
+    premie_pct = (premium / entry_premium - 1.0) * 100.0
+
+    # Pohyb ve prospěch opce: CALL vydělává na růstu podkladu, PUT na poklesu.
+    # Nulový pohyb rozporem není ani při nulových prazích
+    prospech_pct = podklad_pct if right == "C" else -podklad_pct
+    if prospech_pct <= 0 or premie_pct >= 0:
+        return None
+    if prospech_pct < min_underlying_pct or -premie_pct < min_premium_pct:
+        return None
+    return podklad_pct, premie_pct
+
+
 def realized_pnl(
     fill_price: float | None,
     sold_quantity: int,

@@ -136,6 +136,12 @@ class Position:
     filled_quantity: int = 0
     fill_price: float | None = None
     fill_time: datetime | None = None
+    # Cena podkladu a střed trhu opce v okamžiku nákupu - výchozí bod pro
+    # hlídání rozporu prémie s podkladem (viz divergence_warning). Prémie se
+    # bere ze středu trhu, ne z nákupní ceny: nákup za ASK leží nad středem
+    # o půl spreadu a ten by se jinak tvářil jako pokles prémie
+    entry_underlying_price: float | None = None
+    entry_premium: float | None = None
 
     # --- prodeje ---
     # Souhrn všech dokončených i probíhajících prodejů
@@ -292,6 +298,17 @@ class Position:
         return self.state == PositionState.SELLING
 
     @property
+    def is_holding(self) -> bool:
+        """
+        Pozice drží nakoupené kontrakty - je otevřená, případně s prodejním
+        příkazem v trhu, a ještě není všechno prodané.
+        """
+        return (
+            self.state in (PositionState.OPEN, PositionState.SELLING)
+            and self.open_quantity >= 1
+        )
+
+    @property
     def can_sell_all(self) -> bool:
         """
         Prodej celé držené pozice.
@@ -299,10 +316,7 @@ class Position:
         Nabízí se i s prodejním příkazem v trhu - opakovaný stisk tlačítka
         pak nezakládá druhý příkaz, ale přecení ten stávající na aktuální cenu.
         """
-        return (
-            self.state in (PositionState.OPEN, PositionState.SELLING)
-            and self.open_quantity >= 1
-        )
+        return self.is_holding
 
     @property
     def can_sell_base(self) -> bool:
@@ -499,6 +513,54 @@ class Position:
         stejně jako limitní cena napsaná na témže tlačítku.
         """
         return calc.position_pnl(self.fill_price, price, quantity)
+
+    def mark_entry(self) -> None:
+        """
+        Zaznamená první vyplnění nákupu - čas a stav trhu v tu chvíli
+        (cenu podkladu a střed trhu opce) jako výchozí bod hlídání rozporu
+        prémie s podkladem. Volá se s čerstvě načtenými kotacemi.
+        """
+        self.fill_time = datetime.now()
+        self.entry_underlying_price = self.underlying_price
+        self.entry_premium = self.mid
+
+    def divergence_warning(self, min_underlying_pct: float, min_premium_pct: float) -> str:
+        """
+        Upozornění na rozpor prémie s podkladem od vstupu do pozice, například
+        'Rozpor s podkladem: podklad od vstupu +0.35 % (330.20 → 331.36),
+        prémie -3.1 % (2.42 → 2.34) - opce nesleduje podklad, zvažte výstup.'
+
+        Rozpor nastává, když se podklad pohnul ve prospěch opce aspoň
+        o min_underlying_pct procent a prémie (střed trhu) přitom klesla aspoň
+        o min_premium_pct procent - viz calc.premium_divergence. Hlídá se jen
+        u držených kontraktů; bez rozporu vrací prázdný řetězec.
+
+        Procenta jsou se znaménkem skutečného pohybu, takže u PUT stojí
+        u podkladu minus. Hodnoty v závorkách ukazují, z čeho procenta vyšla.
+        """
+        if not self.is_holding:
+            return ""
+        rozpor = calc.premium_divergence(
+            self.right,
+            self.entry_underlying_price,
+            self.underlying_price,
+            self.entry_premium,
+            self.mid,
+            min_underlying_pct,
+            min_premium_pct,
+        )
+        if rozpor is None:
+            return ""
+
+        # Rozpor se spočítal, všechny čtyři ceny jsou tedy platné
+        podklad_pct, premie_pct = rozpor
+        return (
+            f"Rozpor s podkladem: podklad od vstupu {cislo_text(podklad_pct, znamenko=True)} % "
+            f"({cislo_text(self.entry_underlying_price)} → {cislo_text(self.underlying_price)}), "
+            f"prémie {cislo_text(premie_pct, 1, znamenko=True)} % "
+            f"({cislo_text(self.entry_premium)} → {cislo_text(self.mid)}) "
+            f"- opce nesleduje podklad, zvažte výstup."
+        )
 
     @property
     def avg_sell_price(self) -> float | None:

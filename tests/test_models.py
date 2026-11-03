@@ -358,3 +358,44 @@ class TestZobrazeniVysledku(unittest.TestCase):
     def test_bez_znamych_cen_pomlcka(self):
         self.assertEqual(pnl_text(None, None, False), "-")
         self.assertEqual(pnl_text(None, None, True), "- (-) USD")
+
+
+class TestRozporPremieSPodkladem(unittest.TestCase):
+    """Upozornění na rozpor se hlídá jen u držených kontraktů."""
+
+    def setUp(self) -> None:
+        # Vstup při podkladu 200 a středu trhu 2,00; teď podklad 201 a střed 1,90
+        self.p = pozice()
+        self.p.entry_underlying_price = 200.0
+        self.p.entry_premium = 2.00
+        self.p.underlying_price = 201.0
+        self.p.option_bid = 1.85
+        self.p.option_ask = 1.95
+
+    def rozpor(self) -> str:
+        """Upozornění při prazích 0,1 % pro podklad a 2 % pro prémii."""
+        return self.p.divergence_warning(0.1, 2.0)
+
+    def test_otevrena_pozice_hlasi_rozpor(self):
+        self.assertEqual(
+            self.rozpor(),
+            "Rozpor s podkladem: podklad od vstupu +0.50 % (200.00 → 201.00), "
+            "prémie -5.0 % (2.00 → 1.90) - opce nesleduje podklad, zvažte výstup.",
+        )
+
+    def test_pri_bezicim_prodeji_se_hlida_dal(self):
+        self.p.state = PositionState.SELLING
+        self.assertTrue(self.rozpor())
+
+    def test_uzavrena_pozice_rozpor_nehlasi(self):
+        self.p.state = PositionState.CLOSED
+        self.assertEqual(self.rozpor(), "")
+
+    def test_vse_prodano_rozpor_nehlasi(self):
+        self.p.sold_quantity = 3
+        self.assertEqual(self.rozpor(), "")
+
+    def test_bez_ulozeneho_vstupu_rozpor_nehlasi(self):
+        # Pozice z doby před hlídáním rozporu výchozí bod nemá
+        self.p.entry_premium = None
+        self.assertEqual(self.rozpor(), "")

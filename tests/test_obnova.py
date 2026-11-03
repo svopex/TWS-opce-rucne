@@ -31,6 +31,8 @@ class TestUlozeniStavu(ZakladSeStavem):
             buy_limit=3.10,
             filled_quantity=4,
             fill_price=3.15,
+            entry_underlying_price=229.4,
+            entry_premium=3.05,
             sold_quantity=2,
             sold_value=7.4,
             sell_seq=1,
@@ -45,6 +47,9 @@ class TestUlozeniStavu(ZakladSeStavem):
         self.assertEqual(obnovena.runner_quantity, 2)
         self.assertEqual(obnovena.open_quantity, 2)
         self.assertAlmostEqual(obnovena.sold_value, 7.4)
+        # Stav trhu při vstupu po restartu dopočítat nejde
+        self.assertAlmostEqual(obnovena.entry_underlying_price, 229.4)
+        self.assertAlmostEqual(obnovena.entry_premium, 3.05)
         self.assertEqual(obnovena.buy_commissions, {"EXEC-1": 2.0})
         self.assertEqual(obnovena.sell_commissions, {"EXEC-2": 1.5})
         self.assertEqual(obnovena.state, PositionState.OPEN)

@@ -20,6 +20,7 @@ vzniká výhradně stiskem tlačítka.
   - [Zadání a náhled kontraktu](#zadání-a-náhled-kontraktu)
   - [Nákup](#nákup)
   - [Prodej a runner](#prodej-a-runner)
+  - [Rozpor prémie s podkladem](#rozpor-prémie-s-podkladem)
   - [Úklid přehledu](#úklid-přehledu)
   - [Přecenění příkazu, kterému utekl trh](#přecenění-příkazu-kterému-utekl-trh)
   - [Ochrana proti druhému příkazu](#ochrana-proti-druhému-příkazu)
@@ -195,8 +196,8 @@ z konfigurace, nebo když vybraný strike není pro danou expiraci
 obchodovatelný a použil se nejbližší dostupný.
 
 Pod formulářem stojí karta **Nastavení** s podstatnými hodnotami
-z konfigurace (expirace, strike, runner, limit spreadu, tolerance, přirážky
-a platnost příkazů), aby bylo na první pohled vidět, podle čeho se
+z konfigurace (expirace, strike, runner, limit spreadu, tolerance, přirážky,
+prahy rozporu prémie s podkladem a platnost příkazů), aby bylo na první pohled vidět, podle čeho se
 kontrakt vybírá a co nabízejí prodejní tlačítka.
 
 ### Nákup
@@ -299,6 +300,31 @@ Základní pozice je držené množství snížené o runner (`trading.runner_qu
 ve výchozím nastavení 1 kontrakt). Po jejím prodeji zbývá v pozici jen runner
 a zůstane jediný řádek, kterým se doprodá - přesně tak, jak má scale-out
 fungovat.
+
+### Rozpor prémie s podkladem
+
+Jde-li podklad od vstupu ve prospěch opce - u **CALL nahoru, u PUT dolů** -
+a prémie opce přesto **klesá**, opce podklad nesleduje. Typicky ji rozpouští
+časový rozpad nebo pokles implikované volatility a další pohyb podkladu ji
+nemusí zachránit; nejspíš je čas vystoupit. Karta pozice to ohlásí žlutým
+pruhem pod řádkem údajů:
+
+```
+Rozpor s podkladem: podklad od vstupu +0.35 % (330.20 → 331.36), prémie -3.1 % (2.42 → 2.34) - opce nesleduje podklad, zvažte výstup.
+```
+
+- Výchozím bodem je **stav trhu v okamžiku vyplnění nákupu** - cena podkladu
+  a střed trhu opce (MID). Prémie se neporovnává s nákupní cenou: nákup
+  za ASK leží nad středem o půl spreadu a ten by se jinak tvářil jako pokles.
+- Aktuální prémie je také střed trhu, stejně jako u P/L.
+- Aby upozornění neblikalo kvůli šumu kotace, musí se podklad pohnout aspoň
+  o `trading.divergence_underlying_pct` (výchozí 0,1 %) a prémie klesnout
+  aspoň o `trading.divergence_premium_pct` (výchozí 2 %).
+- Hlídá se jen u držených kontraktů (otevřená pozice, i s prodejním příkazem
+  v trhu). Výchozí bod se ukládá do `state.json`, takže platí i po restartu;
+  pozice nakoupené dřív, než aplikace rozpor hlídala, nebo dohledané po
+  restartu bez záznamu o vyplnění výchozí bod nemají a upozornění neukážou.
+- Je to jen upozornění - aplikace sama nic neprodává.
 
 ### Úklid přehledu
 
@@ -573,6 +599,7 @@ se mění:
 | `trading.ask_tolerance_pct`, `trading.bid_tolerance_pct` | o kolik procent smí limit přesáhnout ASK, resp. podlézt BID (0 = přesně na kotaci) |
 | `trading.sell_markups_pct` | seznam prodejních přirážek v procentech (i desetinných) nad vyšší z cen vstup / ASK - každá přidá jedno prodejní tlačítko |
 | `trading.max_spread_pct` | nad kolik procent spreadu rozhraní upozorní (nákup nezakazuje) |
+| `trading.divergence_underlying_pct`, `divergence_premium_pct` | prahy upozornění na rozpor: o kolik procent musí podklad od vstupu jít ve prospěch opce a o kolik zároveň klesnout prémie |
 | `trading.tif` | `DAY` = do konce obchodního dne, `GTC` = do zrušení |
 | `trading.outside_rth` | `true` = příkazy smí být vyplněny i mimo hlavní obchodní hodiny |
 | `trading.exchange_timezone`, `exchange_open_time`, `exchange_close_time` | hodiny burzy pro odpočet v hlavičce (obchodování neovlivňují) |

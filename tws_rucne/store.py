@@ -42,6 +42,9 @@ SAVED_FIELDS = (
     "buy_limit",
     "filled_quantity",
     "fill_price",
+    # Stav trhu při vstupu - po restartu se dopočítat nedá
+    "entry_underlying_price",
+    "entry_premium",
     "sold_quantity",
     "sold_value",
     "sell_kind",

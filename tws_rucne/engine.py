@@ -559,6 +559,15 @@ class ManualEngine:
         """
         return self.cfg.trading.sell_markups_pct
 
+    def divergence_warning(self, position: Position) -> str:
+        """
+        Upozornění na rozpor prémie s podkladem podle prahů z konfigurace
+        (trading.divergence_underlying_pct a divergence_premium_pct);
+        bez rozporu prázdný řetězec. Viz Position.divergence_warning.
+        """
+        t = self.cfg.trading
+        return position.divergence_warning(t.divergence_underlying_pct, t.divergence_premium_pct)
+
     def position_sell_limit(
         self, position: Position, kind: str, markup_pct: float = 0.0
     ) -> float | None:
@@ -1420,8 +1429,10 @@ class ManualEngine:
         if vyplneno != position.filled_quantity:
             position.filled_quantity = vyplneno
             position.fill_price = cena
+            # První vyplnění zaznamená i stav trhu při vstupu; kotace se
+            # načetly v tomtéž kroku smyčky (_refresh_market_data)
             if position.fill_time is None and vyplneno > 0:
-                position.fill_time = datetime.now()
+                position.mark_entry()
             zmena = True
 
         if vyplneno >= position.quantity or status.status == "Filled":

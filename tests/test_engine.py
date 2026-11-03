@@ -411,6 +411,28 @@ class TestNakup(ZakladEnginu):
         self.assertAlmostEqual(position.fill_price, 3.20)
         self.assertIsNotNone(position.fill_time)
 
+    async def test_vyplneny_nakup_si_zapamatuje_stav_trhu_pri_vstupu(self):
+        position = await self.nakup_vyplnen(quantity=1, cena=3.20)
+        self.assertAlmostEqual(position.entry_underlying_price, 230.0)
+        # Výchozí prémie je střed trhu, ne nákupní cena za ASK
+        self.assertAlmostEqual(position.entry_premium, 3.10)
+
+    async def test_rozpor_premie_s_podkladem(self):
+        position = await self.nakup_vyplnen(quantity=1, cena=3.20)
+        self.assertEqual(self.engine.divergence_warning(position), "")
+
+        # Podklad stoupl o 1 %, střed trhu opce přitom klesl z 3,10 na 2,90
+        self.ib.price_underlying = 232.3
+        self.ib.price_bid, self.ib.price_ask = 2.80, 3.00
+        await self.tik()
+        upozorneni = self.engine.divergence_warning(position)
+        self.assertIn("podklad od vstupu +1.00 % (230.00 → 232.30)", upozorneni)
+        self.assertIn("prémie -6.5 % (3.10 → 2.90)", upozorneni)
+
+        # Pod prahem z konfigurace se nehlásí nic
+        self.cfg.trading.divergence_premium_pct = 10.0
+        self.assertEqual(self.engine.divergence_warning(position), "")
+
     async def test_castecne_vyplneny_nakup_po_zruseni_drzi_mensi_pozici(self):
         position = await self.nakup(quantity=5)
         self.ib.fill(position.buy_trade, 2, 3.20, status="Cancelled")

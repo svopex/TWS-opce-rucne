@@ -59,6 +59,15 @@ trading:
   # Nákup se nezakazuje - o zadání rozhoduje obchodník.
   max_spread_pct: 7.0
 
+  # Rozpor prémie s podkladem: karta pozice upozorní, když se podklad
+  # od vstupu pohnul ve prospěch opce (CALL nahoru, PUT dolů) aspoň
+  # o divergence_underlying_pct procent a prémie (střed trhu, MID) přitom
+  # klesla aspoň o divergence_premium_pct procent. Opce pak nesleduje
+  # podklad (časový rozpad, pokles volatility) a nejspíš je čas vystoupit.
+  # Jen upozornění - nic se nezadává automaticky.
+  divergence_underlying_pct: 0.1
+  divergence_premium_pct: 0.1
+
   # Časová zóna burzy - odpočet v hlavičce se časuje v ní, takže posuny
   # letního a zimního času vůči místnímu času počítače nehrají roli
   exchange_timezone: "America/New_York"
