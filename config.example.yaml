@@ -65,7 +65,7 @@ trading:
   # klesla aspoň o divergence_premium_pct procent. Opce pak nesleduje
   # podklad (časový rozpad, pokles volatility) a nejspíš je čas vystoupit.
   # Jen upozornění - nic se nezadává automaticky.
-  divergence_underlying_pct: 0.1
+  divergence_underlying_pct: 0.01
   divergence_premium_pct: 0.1
 
   # Časová zóna burzy - odpočet v hlavičce se časuje v ní, takže posuny
