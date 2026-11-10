@@ -56,6 +56,12 @@ MAX_STRIKE_ATTEMPTS = 8
 # ustupovat donekonečna nemá smysl - pak se kolize radši jen ohlásí.
 MAX_OCCUPIED_SHIFTS = 4
 
+# O kolik striků mimo peníze se nejvýš posune, je-li vybraná opce dražší než
+# strike.max_option_cost. Každý krok stojí ověření kontraktu a čekání na
+# kotaci, proto je hledání omezené; u krátkých expirací bývá levnější opce
+# s rozumnou deltou do několika kroků.
+MAX_COST_SHIFTS = 12
+
 # Jak dlouho se u dokončeného prodeje čeká na skutečnou průměrnou cenu z TWS,
 # než se pozice uzavře s odhadem podle limitní ceny
 FILL_PRICE_WAIT_SEC = 3.0
@@ -96,6 +102,8 @@ class Preview:
     option_bid: float | None = None
     option_ask: float | None = None
     delta: float | None = None
+    # Delta nepřišla z TWS, ale je dopočítaná z ceny opce (Black-Scholes)
+    delta_estimated: bool = False
     min_tick: float = 0.01
     warnings: list[str] = field(default_factory=list)
     # Náhled drží vlastní odběry tržních dat, dokud jej nenahradí novější
@@ -127,6 +135,29 @@ class Preview:
         if not self.ready or self.strike is None:
             return ""
         return contract_label(self.symbol, self.expiration, self.right, self.strike)
+
+
+@dataclass
+class StrikeCandidate:
+    """
+    Jeden posouzený strike při hledání opce v limitu ceny.
+
+    Drží ověřený kontrakt i kotaci a deltu přečtené v okamžiku posouzení,
+    aby se kandidáti dali porovnat bez dalšího čtení tržních dat.
+    """
+
+    strike: float
+    option: Any
+    min_tick: float
+    bid: float | None = None
+    ask: float | None = None
+    delta: float | None = None
+    delta_estimated: bool = False
+
+    @property
+    def cost(self) -> float | None:
+        """Cena jednoho kontraktu v USD podle středu trhu."""
+        return calc.order_value(calc.mid_price(self.bid, self.ask), 1)
 
 
 class ManualEngine:
@@ -349,13 +380,12 @@ class ManualEngine:
             preview.min_tick = detaily.minTick or 0.01
 
             # Kotace vybrané opce - z nich se počítají limitní ceny tlačítek
-            self.ib.subscribe(option)
-            await self.ib.wait_for_quotes(
-                option,
-                self.cfg.engine.market_data_timeout_sec,
-                self.cfg.engine.quotes_grace_sec,
-            )
+            await self._subscribe_option(option)
             self._read_quotes(preview)
+
+            # Opce dražší než limit ceny se nahradí levnější dál mimo peníze;
+            # spread se pak kontroluje už u té, která v náhledu zůstane
+            await self._apply_cost_limit(preview, strikes, obsazene, retezec.tradingClass)
 
             if preview.mid is None:
                 preview.warnings.append(
@@ -491,13 +521,186 @@ class ManualEngine:
             f"obchodovatelný strike. Poslední chyba: {posledni_chyba}"
         )
 
+    async def _subscribe_option(self, option: Any) -> None:
+        """Založí odběr tržních dat opce a počká na první kotaci."""
+        self.ib.subscribe(option)
+        await self.ib.wait_for_quotes(
+            option,
+            self.cfg.engine.market_data_timeout_sec,
+            self.cfg.engine.quotes_grace_sec,
+        )
+
+    def _quote_candidate(
+        self, preview: Preview, strike: float, option: Any, min_tick: float
+    ) -> StrikeCandidate:
+        """
+        Přečte kotaci a deltu opce z odebíraných dat.
+
+        Nepošle-li TWS deltu (model greeks chodí nespolehlivě), dopočítá se
+        z ceny opce - náhled ji tak ukáže a minimální delta jde ověřit i bez
+        dat z TWS.
+        """
+        bid, ask, delta = self.ib.option_quotes(option)
+        kandidat = StrikeCandidate(
+            strike=strike, option=option, min_tick=min_tick, bid=bid, ask=ask, delta=delta
+        )
+        if delta is None:
+            kandidat.delta = calc.estimate_delta(
+                calc.mid_price(bid, ask),
+                preview.current_price,
+                strike,
+                preview.expiration,
+                preview.right,
+            )
+            kandidat.delta_estimated = kandidat.delta is not None
+        return kandidat
+
+    def _apply_candidate(self, preview: Preview, kandidat: StrikeCandidate) -> None:
+        """Zapíše do náhledu kotaci a deltu kandidáta."""
+        preview.option_bid = kandidat.bid
+        preview.option_ask = kandidat.ask
+        # Bez nové delty (ani odhadu) zůstává poslední známá
+        if kandidat.delta is not None:
+            preview.delta = kandidat.delta
+            preview.delta_estimated = kandidat.delta_estimated
+
     def _read_quotes(self, preview: Preview) -> None:
         """Načte do náhledu aktuální kotace a deltu vybrané opce."""
-        bid, ask, delta = self.ib.option_quotes(preview.option)
-        preview.option_bid = bid
-        preview.option_ask = ask
-        if delta is not None:
-            preview.delta = delta
+        self._apply_candidate(
+            preview,
+            self._quote_candidate(preview, preview.strike, preview.option, preview.min_tick),
+        )
+
+    async def _scan_cheaper_strikes(
+        self,
+        preview: Preview,
+        strikes: list[float],
+        obsazene: dict[int, str],
+        trading_class: str,
+        max_cost: float,
+    ) -> list[StrikeCandidate]:
+        """
+        Posoudí strike za vybraným strikem dál mimo peníze, dokud nenajde
+        opci v limitu ceny - nejvýš MAX_COST_SHIFTS kroků.
+
+        Strike, který pro expiraci v TWS neexistuje, i kontrakt obsazený
+        cizím příkazem nebo pozicí se přeskočí. Hledání končí u první
+        levné opce: dál od peněz už jen klesá delta, takže výhodnější
+        kandidát tam být nemůže. Každý vrácený kandidát má založený odběr
+        tržních dat, který musí volající uvolnit, pokud jej nepoužije.
+        """
+        kandidati: list[StrikeCandidate] = []
+        try:
+            for strike in calc.strikes_beyond(strikes, preview.strike, preview.right)[
+                :MAX_COST_SHIFTS
+            ]:
+                try:
+                    option, detaily = await self.ib.qualify_option(
+                        preview.symbol, preview.expiration, strike, preview.right, trading_class
+                    )
+                except ValueError:
+                    # Strike pro tuto expiraci neexistuje - zkusí se další
+                    continue
+                if option.conId in obsazene:
+                    continue
+
+                await self._subscribe_option(option)
+                kandidat = self._quote_candidate(
+                    preview, strike, option, detaily.minTick or 0.01
+                )
+                kandidati.append(kandidat)
+                if kandidat.cost is not None and kandidat.cost <= max_cost:
+                    break
+        except BaseException:
+            # Chyba i zrušení přípravy musí odběry posouzených kandidátů vrátit
+            for kandidat in kandidati:
+                self.ib.unsubscribe(kandidat.option)
+            raise
+        return kandidati
+
+    async def _apply_cost_limit(
+        self,
+        preview: Preview,
+        strikes: list[float],
+        obsazene: dict[int, str],
+        trading_class: str,
+    ) -> None:
+        """
+        Posune strike mimo peníze, je-li vybraná opce dražší než limit ceny.
+
+        Původní výběr (strike.otm_steps, vyhnutí se obsazenému) zůstává,
+        pokud jeho cena (střed trhu krát 100) nepřesahuje strike.max_option_cost.
+        Jinak se posuzují strike dál mimo peníze a vybere se ten, který
+        nejlépe splní limit ceny i minimální deltu strike.min_delta (viz
+        calc.pick_strike_candidate). Nesplní-li vybraný strike některý
+        z limitů, náhled varuje - nákup ale zůstává na obchodníkovi.
+        """
+        max_cost = self.cfg.strike.max_option_cost
+        min_delta = self.cfg.strike.min_delta
+        if max_cost <= 0:
+            return
+
+        # Původní volba se posoudí z kotací, které náhled právě načetl
+        puvodni = StrikeCandidate(
+            strike=preview.strike,
+            option=preview.option,
+            min_tick=preview.min_tick,
+            bid=preview.option_bid,
+            ask=preview.option_ask,
+            delta=preview.delta,
+            delta_estimated=preview.delta_estimated,
+        )
+        # Bez úplné kotace nelze cenu posoudit (chybějící kotaci hlásí příprava
+        # sama) a opce v limitu ceny se nechává - posouvá se jen dražší
+        posouzene: list[StrikeCandidate] = []
+        vybrany = puvodni
+        if puvodni.cost is not None and puvodni.cost > max_cost:
+            posouzene = await self._scan_cheaper_strikes(
+                preview, strikes, obsazene, trading_class, max_cost
+            )
+            kandidati = [puvodni] + posouzene
+            vybrany = kandidati[
+                calc.pick_strike_candidate(
+                    [(k.cost, k.delta) for k in kandidati], max_cost, min_delta
+                )
+            ]
+
+        # Odběry kandidátů, kteří neuspěli, se uvolní hned; vybraný si odběr
+        # nechá a převezme jej náhled místo odběru původní opce
+        for kandidat in posouzene:
+            if kandidat is not vybrany:
+                self.ib.unsubscribe(kandidat.option)
+
+        if vybrany is not puvodni:
+            self.ib.unsubscribe(preview.option)
+            preview.strike = vybrany.strike
+            preview.option = vybrany.option
+            preview.min_tick = vybrany.min_tick
+            self._apply_candidate(preview, vybrany)
+            cena = "bez ceny" if vybrany.cost is None else f"{vybrany.cost:.0f} USD"
+            preview.warnings.append(
+                f"Strike {puvodni.strike:g} stojí {puvodni.cost:.0f} USD, nad limitem "
+                f"{max_cost:g} USD - posunuto na {vybrany.strike:g} ({cena})."
+            )
+
+        # Vybraný strike nemusí splnit oba limity - pak jde o nejbližší
+        # kompromis a obchodník to musí vědět dřív, než nakoupí
+        problemy: list[str] = []
+        if vybrany.cost is not None and vybrany.cost > max_cost:
+            problemy.append(f"cena {vybrany.cost:.0f} USD nad limitem {max_cost:g} USD")
+        if min_delta > 0 and vybrany.delta is not None and abs(vybrany.delta) < min_delta:
+            problemy.append(f"delta {abs(vybrany.delta):.2f} pod minimem {min_delta:g}")
+        if problemy:
+            preview.warnings.append(
+                f"POZOR: strike {vybrany.strike:g} nesplňuje limity výběru "
+                f"({'; '.join(problemy)}) - je to nejvýhodnější dostupná volba."
+            )
+        # Bez kotace se delta neodhadne; chybějící kotaci už hlásí příprava
+        if min_delta > 0 and vybrany.delta is None and vybrany.cost is not None:
+            preview.warnings.append(
+                f"Deltu striku {vybrany.strike:g} se nepodařilo zjistit ani odhadnout "
+                f"- minimum {min_delta:g} nelze ověřit."
+            )
 
     def _replace_preview(self, preview: Preview) -> None:
         """Nahradí aktuální náhled novým a odběry toho starého uvolní."""

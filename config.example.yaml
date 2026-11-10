@@ -115,6 +115,16 @@ strike:
   # zapnutém avoid_occupied a vlastní stav se vynechává.
   reserved_state_files:
     - ../TWS-opce/state.json
+  # Nejvyšší cena jednoho kontraktu v USD (střed trhu MID krát 100).
+  # Je-li opce vybraná podle otm_steps dražší, posune se strike dál mimo
+  # peníze na první levnější (nejvýš o 12 striků). Levnější opci se původní
+  # výběr nemění. 0 = vypnuto.
+  max_option_cost: 500
+  # Nejnižší delta (absolutní hodnota) posunutého striku. Nesplní-li žádný
+  # strike cenu i deltu zároveň, vybere se nejbližší kompromis - ten, který
+  # limity poruší relativně nejméně - a náhled varuje. Varuje i tehdy, když
+  # deltu nesplní opce v limitu ceny. 0 = vypnuto.
+  min_delta: 0.20
 
 # --- Monitorovací smyčka ---
 engine:

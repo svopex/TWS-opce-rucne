@@ -27,6 +27,7 @@ vzniká výhradně stiskem tlačítka.
 - [Přehled výsledků](#přehled-výsledků)
   - [Dlaždice Z účtu](#dlaždice-z-účtu)
 - [Výběr expirace a strike](#výběr-expirace-a-strike)
+  - [Limit ceny opce a minimální delta](#limit-ceny-opce-a-minimální-delta)
   - [Vyhnutí se obsazenému kontraktu](#vyhnutí-se-obsazenému-kontraktu)
 - [Výsledek pozice](#výsledek-pozice)
 - [Konfigurace](#konfigurace)
@@ -187,13 +188,14 @@ vybrat podle aktuálního stavu.
 Během dotazu do TWS svítí hláška `Načítám data z TWS…`. Náhled ukazuje:
 
 - vybraný kontrakt a počet dní do expirace,
-- cenu podkladu a deltu opce,
+- cenu podkladu a deltu opce (dopočítanou deltu označí `(odhad)`),
 - BID / ASK / MID a spread,
 - odhad nákladů na zadané množství (počítáno ze středu trhu).
 
 Upozornění se vypisují pod náhledem - například když je spread nad limitem
-z konfigurace, nebo když vybraný strike není pro danou expiraci
-obchodovatelný a použil se nejbližší dostupný.
+z konfigurace, když vybraný strike není pro danou expiraci obchodovatelný
+a použil se nejbližší dostupný, nebo když se strike posunul kvůli limitu ceny
+opce a nesplnil minimální deltu.
 
 Pod formulářem stojí karta **Nastavení** s podstatnými hodnotami
 z konfigurace (expirace, strike, runner, limit spreadu, tolerance, přirážky,
@@ -486,6 +488,37 @@ vypnuté), ukazuje dlaždice pomlčku - dělit nulou nelze a odhad by lhal.
   všechny tickery: u SPY (rastr 1) je krok dolar, u AAPL (rastr 2,5) dva a půl.
 - `atm` - nejbližší strike aktuální ceně podkladu.
 
+### Limit ceny opce a minimální delta
+
+Je-li nastaveno `strike.max_option_cost` (cena **jednoho kontraktu** v USD,
+tedy MID × 100), příprava zadání nejdřív vybere strike podle `strike.mode`
+jako obvykle. **Vejde-li se opce do limitu, výběr se nemění.** Je-li dražší,
+posuzují se strike dál mimo peníze (u CALL výš, u PUT níž, nejvýš 12 striků),
+dokud se nenajde první opce v limitu. Strike, které pro expiraci neexistují,
+a obsazené kontrakty se přeskočí.
+
+`strike.min_delta` hlídá, aby posun neskončil u opce, která z pohybu podkladu
+skoro nic nevytěží. Nesplní-li žádný strike cenu i deltu zároveň (v limitu
+ceny je až opce s nízkou deltou), vybere se **nejbližší kompromis**: strike,
+který limity poruší relativně nejméně. Překročení ceny i nedostatek delty se
+měří v procentech limitu - například opce za 520 USD (o 4 % nad limitem 500)
+vyhraje nad sousední opcí s deltou 0,15 (o 25 % pod minimem 0,20). Náhled
+v takovém případě i u levné opce s deltou pod minimem **varuje**, nákup ale
+nezakazuje.
+
+Deltu bere aplikace z TWS (model greeks). Když ji TWS nepošle, dopočítá ji
+z ceny opce modelem Black-Scholes a v náhledu ji označí `(odhad)`.
+
+Výběr probíhá znovu i při stisku nákupního tlačítka. Pohne-li se mezitím cena
+opce přes limit, může příprava vybrat sousední strike - nákup se pak odmítne
+stejně jako při jiné změně nabídky a o zadání rozhodne druhý stisk.
+
+```yaml
+strike:
+  max_option_cost: 500   # 0 = vypnuto
+  min_delta: 0.20        # 0 = vypnuto
+```
+
 Opční řetězec vrací strike ceny pro všechny expirace dohromady, takže vybraný
 strike nemusí být pro zvolenou expiraci obchodovatelný. Aplikace proto zkouší
 kandidáty podle vzdálenosti od cíle (nejvýš osm), dokud se některý v TWS
@@ -604,6 +637,7 @@ se mění:
 | `trading.outside_rth` | `true` = příkazy smí být vyplněny i mimo hlavní obchodní hodiny |
 | `trading.exchange_timezone`, `exchange_open_time`, `exchange_close_time` | hodiny burzy pro odpočet v hlavičce (obchodování neovlivňují) |
 | `strike.mode`, `strike.otm_steps` | jak se vybírá strike |
+| `strike.max_option_cost`, `strike.min_delta` | nejvyšší cena jednoho kontraktu v USD (MID × 100) a nejnižší delta - dražší opce se posune dál mimo peníze (0 = vypnuto) |
 | `strike.avoid_occupied` | `true` = vyhnout se kontraktu, který obsadil cizí příkaz, neřízená pozice nebo obchod jiné aplikace |
 | `strike.reserved_state_files` | stavové soubory jiných aplikací, ze kterých se čte, které kontrakty drží jejich čekající obchody |
 | `expiration.mode`, `expiration.min_dte` | jak se vybírá expirace |

@@ -839,8 +839,10 @@ class TradingUI:
             except ValueError:
                 dte = ""
         self.nahled_kontrakt.set_text(f"{preview.contract_label}{dte}")
+        # Delta dopočítaná z ceny opce (TWS ji neposlalo) se označí jako odhad
+        odhad = " (odhad)" if preview.delta_estimated else ""
         self.nahled_podklad.set_text(
-            f"Podklad: {fmt(preview.current_price)} | delta: {fmt(preview.delta)}"
+            f"Podklad: {fmt(preview.current_price)} | delta: {fmt(preview.delta)}{odhad}"
         )
         self.nahled_kotace_radek.set_visibility(True)
         self.nahled_kotace.set_text(f"{fmt(preview.option_bid)} / {fmt(preview.option_ask)}")
@@ -1065,6 +1067,11 @@ class TradingUI:
             if s.mode == "otm_offset"
             else "nejbližší aktuální ceně (ATM)"
         )
+        # Limit ceny opce mění výběr striku, proto patří k němu na stejný řádek
+        if s.max_option_cost > 0:
+            strike += f", dražší než {s.max_option_cost:g} USD se posune dál"
+            if s.min_delta > 0:
+                strike += f" (min. delta {s.min_delta:g})"
         # Vyhýbání se obsazeným kontraktům patří na oči i se zdrojem:
         # z rozhraní by jinak nešlo poznat, že aplikace ustupuje i obchodům
         # druhé aplikace, o kterých TWS zatím neví. Sledované soubory se berou

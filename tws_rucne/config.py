@@ -124,6 +124,14 @@ class StrikeConfig:
     # Relativní cesta se vztahuje k adresáři, odkud je aplikace spuštěna;
     # čte se jen při zapnutém avoid_occupied.
     reserved_state_files: list[str] = field(default_factory=list)
+    # Nejvyšší cena jednoho kontraktu v USD (střed trhu krát 100). Je-li opce
+    # vybraná podle otm_steps dražší, posune se strike dál mimo peníze na
+    # první levnější. Levnější opci se původní výběr nemění. 0 = vypnuto.
+    max_option_cost: float = 0.0
+    # Nejnižší delta (v absolutní hodnotě), kterou smí mít strike posunutý
+    # kvůli ceně. Nesplní-li žádný strike cenu i deltu zároveň, vybere se
+    # nejbližší kompromis a náhled varuje. 0 = vypnuto.
+    min_delta: float = 0.0
 
 
 @dataclass
@@ -300,6 +308,12 @@ def validate_config(cfg: AppConfig) -> None:
         not isinstance(cesta, str) for cesta in cfg.strike.reserved_state_files
     ):
         problemy.append("strike.reserved_state_files musí být seznam cest k souborům")
+    # Limity ceny a delty: text v YAML by shodil přípravu zadání až při
+    # porovnání, delta 1 a víc by nevyhověla nikdy
+    if not _je_cislo(cfg.strike.max_option_cost) or cfg.strike.max_option_cost < 0:
+        problemy.append("strike.max_option_cost musí být nezáporné číslo (USD)")
+    if not _je_cislo(cfg.strike.min_delta) or not 0 <= cfg.strike.min_delta < 1:
+        problemy.append("strike.min_delta musí ležet v intervalu [0, 1)")
 
     if cfg.trading.default_right not in RIGHTS:
         problemy.append(

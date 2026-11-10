@@ -70,6 +70,88 @@ class TestPripravaZadani(ZakladEnginu):
             await self.engine.prepare("AAPL", "C")
 
 
+class TestLimitCenyOpce(ZakladEnginu):
+    """Opce dražší než strike.max_option_cost se posune dál mimo peníze."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.nastav_rastr_striku()
+        self.cfg.strike.max_option_cost = 500.0
+        self.cfg.strike.min_delta = 0.20
+        # Cena i delta klesají se vzdáleností od peněz (podklad 230)
+        self.ib.strike_quotes = {
+            232.5: (9.90, 10.10, 0.51),
+            235.0: (6.90, 7.10, 0.38),
+            237.5: (4.40, 4.60, 0.26),
+            240.0: (2.40, 2.60, 0.15),
+            242.5: (0.90, 1.10, 0.08),
+        }
+
+    async def test_levna_opce_puvodni_strike_nemeni(self):
+        self.ib.strike_quotes[232.5] = (4.80, 5.00, 0.51)
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        self.assertEqual(nahled.warnings, [])
+
+    async def test_draha_opce_posune_na_prvni_levnou(self):
+        nahled = await self.engine.prepare("AAPL", "C")
+        # 237,5 stojí 450 USD a má deltu 0,26 - první strike v limitu
+        self.assertEqual(nahled.strike, 237.5)
+        self.assertEqual(nahled.option.conId, 800003)
+        self.assertAlmostEqual(nahled.delta, 0.26)
+        self.assertEqual(nahled.option_ask, 4.60)
+        self.assertTrue(any("posunuto na 237.5" in v for v in nahled.warnings))
+        self.assertFalse(any("POZOR" in v for v in nahled.warnings))
+
+    async def test_odbery_zustanou_jen_u_vybraneho_striku(self):
+        await self.engine.prepare("AAPL", "C")
+        # Původní i posouzení kandidáti se odhlásí, zůstane podklad a vybraná opce
+        self.assertEqual(self.ib.subscribed, {UNDERLYING_CONID: 1, 800003: 1})
+
+    async def test_kompromis_mensi_preseni_ceny(self):
+        # V limitu je až 240 s deltou 0,15 (nedostatek 25 %), 237,5 má
+        # deltu 0,26 a stojí 520 USD (překročení 4 %) - menší porušení vyhraje
+        self.ib.strike_quotes[237.5] = (5.10, 5.30, 0.26)
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 237.5)
+        self.assertTrue(any("POZOR" in v and "nad limitem" in v for v in nahled.warnings))
+        self.assertEqual(self.ib.subscribed, {UNDERLYING_CONID: 1, 800003: 1})
+
+    async def test_kompromis_mensi_nedostatek_delty(self):
+        # 237,5 stojí 700 USD (překročení 40 %), 240 má deltu 0,19 (5 %)
+        self.ib.strike_quotes[237.5] = (6.90, 7.10, 0.26)
+        self.ib.strike_quotes[240.0] = (2.40, 2.60, 0.19)
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 240.0)
+        self.assertTrue(any("POZOR" in v and "pod minimem" in v for v in nahled.warnings))
+
+    async def test_obsazeny_kandidat_se_preskoci(self):
+        self.ib.foreign_orders = {800003: "AAPL C 237.5"}
+        self.ib.strike_quotes[240.0] = (3.40, 3.60, 0.21)
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 240.0)
+
+    async def test_levna_opce_s_nizkou_deltou_jen_varuje(self):
+        self.ib.strike_quotes[232.5] = (2.90, 3.10, 0.12)
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+        self.assertTrue(any("pod minimem" in v for v in nahled.warnings))
+
+    async def test_chybejici_delta_se_odhadne_z_ceny(self):
+        self.ib.strike_quotes = {
+            strike: (bid, ask, None) for strike, (bid, ask, _) in self.ib.strike_quotes.items()
+        }
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertTrue(nahled.delta_estimated)
+        self.assertIsNotNone(nahled.delta)
+        self.assertGreater(nahled.strike, 232.5)
+
+    async def test_vypnuty_limit_nic_neposouva(self):
+        self.cfg.strike.max_option_cost = 0.0
+        nahled = await self.engine.prepare("AAPL", "C")
+        self.assertEqual(nahled.strike, 232.5)
+
+
 class TestObsazenyStrike(ZakladEnginu):
     """Kontrakt obsazený cizím příkazem nebo pozicí se při výběru přeskočí."""
 

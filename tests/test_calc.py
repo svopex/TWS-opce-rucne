@@ -12,6 +12,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tws_rucne import calc
 
 
+class TestLimitCeny(unittest.TestCase):
+    """Výběr striku podle ceny opce a minimální delty."""
+
+    def test_strike_za_strikem_mimo_penize(self):
+        strikes = [225.0, 227.5, 230.0, 232.5, 235.0]
+        self.assertEqual(calc.strikes_beyond(strikes, 230.0, "C"), [232.5, 235.0])
+        self.assertEqual(calc.strikes_beyond(strikes, 230.0, "P"), [227.5, 225.0])
+
+    def test_poruseni_limitu(self):
+        self.assertEqual(calc.strike_violation(450.0, 0.3, 500.0, 0.2), 0.0)
+        self.assertAlmostEqual(calc.strike_violation(550.0, 0.3, 500.0, 0.2), 0.1)
+        self.assertAlmostEqual(calc.strike_violation(450.0, -0.18, 500.0, 0.2), 0.1)
+        # Neznámá cena se posoudit nedá, neznámá delta se nepočítá
+        self.assertIsNone(calc.strike_violation(None, 0.3, 500.0, 0.2))
+        self.assertEqual(calc.strike_violation(450.0, None, 500.0, 0.2), 0.0)
+
+    def test_vyhrava_prvni_bez_poruseni(self):
+        kandidati = [(1000.0, 0.5), (450.0, 0.3), (200.0, 0.21)]
+        self.assertEqual(calc.pick_strike_candidate(kandidati, 500.0, 0.2), 1)
+
+    def test_kompromis_s_mensim_porusenim(self):
+        kandidati = [(1000.0, 0.5), (520.0, 0.25), (300.0, 0.12)]
+        self.assertEqual(calc.pick_strike_candidate(kandidati, 500.0, 0.2), 1)
+
+    def test_odhad_delty_z_ceny_opce(self):
+        expirace = (date.today() + timedelta(days=1)).strftime("%Y%m%d")
+        # Opce u peněz má deltu kolem 0,5, mimo peníze nižší
+        u_penez = calc.estimate_delta(10.25, 512.0, 512.5, expirace, "C")
+        mimo = calc.estimate_delta(2.0, 512.0, 525.0, expirace, "C")
+        self.assertAlmostEqual(u_penez, 0.5, delta=0.05)
+        self.assertLess(mimo, u_penez)
+        self.assertLess(calc.estimate_delta(2.0, 512.0, 500.0, expirace, "P"), 0)
+        self.assertIsNone(calc.estimate_delta(None, 512.0, 500.0, expirace, "C"))
+
+
 class TestVyberStrike(unittest.TestCase):
     """Strike se určuje z aktuální ceny podkladu."""
 

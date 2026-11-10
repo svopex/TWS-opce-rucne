@@ -70,6 +70,9 @@ class FakeIBService(IBService):
         # Počet odběratelů tržních dat podle conId - testy tak odhalí odběr,
         # který se po chybě nebo zrušení přípravy neuvolnil
         self.subscribed: dict[int, int] = {}
+        # Kotace podle strike (strike -> (bid, ask, delta)) pro scénáře výběru
+        # podle ceny opce; strike mimo mapu dostane společné ceny price_*
+        self.strike_quotes: dict[float, tuple[float | None, float | None, float | None]] = {}
         self._next_order_id = 1
 
     # --- spojení ---
@@ -183,12 +186,16 @@ class FakeIBService(IBService):
             ticker.last = NAN if self.price_underlying is None else self.price_underlying
             return ticker
 
-        ticker.bid = NAN if self.price_bid is None else self.price_bid
-        ticker.ask = NAN if self.price_ask is None else self.price_ask
+        # Kotace konkrétního striku má přednost před společnými cenami
+        bid, ask, delta = self.strike_quotes.get(
+            contract.strike, (self.price_bid, self.price_ask, self.greek_delta)
+        )
+        ticker.bid = NAN if bid is None else bid
+        ticker.ask = NAN if ask is None else ask
         ticker.last = NAN if self.price_last is None else self.price_last
         ticker.close = NAN if self.price_close is None else self.price_close
-        if self.greek_delta is not None:
-            ticker.modelGreeks = OptionComputation(tickAttrib=0, delta=self.greek_delta)
+        if delta is not None:
+            ticker.modelGreeks = OptionComputation(tickAttrib=0, delta=delta)
         return ticker
 
     # --- příkazy ---

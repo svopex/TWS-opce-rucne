@@ -110,6 +110,9 @@ class IBService:
         self._chain_cache: dict[str, Any] = {}
         # Ověřené akciové kontrakty podle tickeru - viz qualify_stock
         self._stock_cache: dict[str, Contract] = {}
+        # Ověřené opční kontrakty i s detaily podle (ticker, expirace, strike,
+        # směr, třída) - výběr striku je ověřuje při každé přípravě zadání
+        self._option_cache: dict[tuple, tuple[Contract, ContractDetails]] = {}
         # Naposledy zjištěné cizí příkazy a čas jejich zjištění -
         # viz foreign_order_conids a FOREIGN_ORDERS_CACHE_SEC
         self._foreign_conids: dict[int, str] = {}
@@ -349,7 +352,16 @@ class IBService:
         """
         Sestaví a ověří opční kontrakt, vrátí kontrakt včetně detailů
         (kvůli minimálnímu tiku pro zaokrouhlování limitních cen).
+
+        Ověřený kontrakt se kešuje: příprava zadání se volá po každé změně
+        formuláře i před každým nákupem a posun striku kvůli ceně ověřuje
+        několik kontraktů za sebou. Neexistující kontrakt se nekešuje.
         """
+        klic = (symbol, expiration, strike, right, trading_class)
+        v_pameti = self._option_cache.get(klic)
+        if v_pameti is not None:
+            return v_pameti
+
         opce = Option(
             symbol=symbol,
             lastTradeDateOrContractMonth=expiration,
@@ -368,6 +380,7 @@ class IBService:
             )
         # Při více variantách se bere ta s nejmenším multiplikátorem (standardní kontrakt)
         detail = min(detaily, key=lambda d: float(d.contract.multiplier or 100))
+        self._option_cache[klic] = (detail.contract, detail)
         return detail.contract, detail
 
     # ------------------------------------------------------------------

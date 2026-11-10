@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ib_async import Contract, Order, OrderStatus, Stock, Ticker, Trade
+from ib_async import Contract, ContractDetails, Order, OrderStatus, Stock, Ticker, Trade
 
 from tws_rucne.config import AppConfig
 from tws_rucne.ib_service import IBService, order_ref
@@ -254,3 +254,46 @@ class TestVarovaniLinky(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FalesneDetaily:
+    """
+    Náhrada ib_async.IB pro ověřování opčních kontraktů.
+
+    Počítá dotazy na detaily kontraktu; strike z množství chybi vrací
+    prázdný výsledek jako kontrakt, který pro expiraci v TWS neexistuje.
+    """
+
+    def __init__(self) -> None:
+        self.dotazu = 0
+        self.chybi: set[float] = set()
+
+    async def reqContractDetailsAsync(self, opce):
+        self.dotazu += 1
+        if opce.strike in self.chybi:
+            return []
+        opce.conId = 700000 + int(opce.strike)
+        opce.multiplier = "100"
+        return [ContractDetails(contract=opce, minTick=0.05)]
+
+
+class TestOvereniOpce(unittest.IsolatedAsyncioTestCase):
+    """Ověřený opční kontrakt se kešuje, neexistující ne."""
+
+    def setUp(self) -> None:
+        self.sluzba = IBService(AppConfig())
+        self.spojeni = FalesneDetaily()
+        self.sluzba.ib = self.spojeni
+
+    async def test_opakovane_overeni_se_nepta_tws(self):
+        prvni, _ = await self.sluzba.qualify_option("AMD", "20261111", 520.0, "C")
+        druhy, _ = await self.sluzba.qualify_option("AMD", "20261111", 520.0, "C")
+        self.assertIs(prvni, druhy)
+        self.assertEqual(self.spojeni.dotazu, 1)
+
+    async def test_neexistujici_kontrakt_se_overuje_znovu(self):
+        self.spojeni.chybi = {522.5}
+        for _ in range(2):
+            with self.assertRaises(ValueError):
+                await self.sluzba.qualify_option("AMD", "20261111", 522.5, "C")
+        self.assertEqual(self.spojeni.dotazu, 2)
